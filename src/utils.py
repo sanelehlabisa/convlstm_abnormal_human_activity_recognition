@@ -1,141 +1,140 @@
+"""
+utils.py
+
+Utility functions for the ConvLSTM-based Abnormal Human Activity Recognition (AHAR) project.
+Includes visualization and model persistence utilities.
+
+Author: Sanele Hlabisa
+"""
+
+from __future__ import annotations
 import os
-import json
-import matplotlib.pyplot as plt
-import cv2
 import torch
+import cv2
 import numpy as np
+import matplotlib.pyplot as plt
+from typing import Optional
 
-CLASSES: list[str] = [
-    "Begging", "Drunkenness", "Fight", "Harassment", "Hijack",
-    "Knife hazard", "Normal videos", "Pollution", "Property damage",
-    "Robbery", "Terrorism"
-]
 
-# Hyperparameters
+# ========================
+# Configuration constants
+# ========================
 BATCH_SIZE: int = 8
-SEQUENCE_LENGTH: int = 10  # Number of frames in each video sequence
-WIDTH: int = 320 # Frame width
-HEIGHT: int = 320  # Frame height
-LEARNING_RATE: float = 1e-4 # Learning rate for the optimizer
-EPOCHS: int = 32 # Number of training epochs
-NUM_CHANNELS: int = 3  # Number of channels in the input images (3 for RGB)
+SEQUENCE_LENGTH: int = 15
+WIDTH: int = 320
+HEIGHT: int = 320
+LEARNING_RATE: float = 1e-4
+EPOCHS: int = 32
+NUM_CHANNELS: int = 3
+DATASET_SPLIT: tuple[float, float, float] = (0.7, 0.2, 0.1)
 
-def get_class_names() -> list[str]:
+
+# ========================
+# Display Utility
+# ========================
+def display_frames(
+    frames: list[np.ndarray],
+    label: str,
+    prediction: Optional[str] = None,
+    probs: Optional[np.ndarray] = None,
+) -> None:
     """
-    Get the list of class names for the activity recognition dataset.
+    Display a grid of frames with an optional label, prediction, and probability vector.
 
     Args:
-        None
-
-    Returns:
-        CLASSES (list[str]): List of class names.
-    """
-    return CLASSES
-
-def get_num_classes() -> int:
-    """
-    Get the number of classes in the activity recognition dataset.
-
-    Args:
-        None
-    
-    Returns:
-        num_of_classes (int): Number of classes.
-    """
-    num_of_classes: int = len(get_class_names())
-    return num_of_classes
-
-def plot_samples(X: list, Y: list, num_samples: int = 5) -> None:
-    """
-    Plot a few samples from the dataset.
-
-    Params:
-        X (list): List of data samples (images/frames).
-        Y (list): List of labels corresponding to the samples.
-        num_samples (int): Number of samples to display.
+        frames (list[np.ndarray]): List of image frames (BGR or RGB).
+        label (str): Ground truth label.
+        prediction (Optional[str]): Predicted class name (default: None).
+        probs (Optional[np.ndarray]): Probability distribution vector (default: None).
 
     Returns:
         None
     """
-    plt.figure(figsize=(15, 5))
-    for i in range(num_samples):
-        plt.subplot(1, num_samples, i + 1)
-        plt.imshow(X[i][0])  # Display the first frame of each sample
-        plt.title(get_class_names()[np.argmax(Y[i])])  # Title is the class name
-        plt.axis('off')
+    num_frames = len(frames)
+    cols = min(num_frames, 5)
+    rows = (num_frames + cols - 1) // cols
+
+    plt.figure(figsize=(cols * 3, rows * 3))
+
+    for i, frame in enumerate(frames):
+        plt.subplot(rows, cols, i + 1)
+        plt.imshow(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        plt.axis("off")
+
+    # Construct title
+    title = f"Label: {label}"
+    if prediction is not None:
+        title += f" | Prediction: {prediction}"
+    if probs is not None:
+        title += f"\nProbabilities: {np.round(probs, 3)}"
+
+    plt.suptitle(title, fontsize=12)
+    plt.tight_layout()
     plt.show()
-    return
 
-def save_predictions(predictions: dict[str, list[float]], filename: str = 'predictions.json') -> None:
+
+# ========================
+# Model Persistence
+# ========================
+def save_model(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    epoch: int,
+    loss: float,
+    path: str = "checkpoints/best_model.pth",
+) -> None:
     """
-    Save model predictions to a JSON file.
+    Save model weights, optimizer state, current epoch, and loss.
 
     Args:
-        predictions (dict[str, list[float]]): Dictionary where keys are filenames and values are lists of probabilities.
-        filename (str): Name of the JSON file to save predictions.
+        model (torch.nn.Module): Model to save.
+        optimizer (torch.optim.Optimizer): Optimizer instance.
+        epoch (int): Current epoch number.
+        loss (float): Best loss achieved.
+        path (str): Path to save the checkpoint.
 
     Returns:
         None
     """
-    with open(filename, 'w') as json_file:
-        json.dump(predictions, json_file, indent=4)
-    return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "epoch": epoch,
+            "loss": loss,
+        },
+        path,
+    )
+    print(f"✅ Model checkpoint saved at: {path}")
 
-def label_video_with_prediction(video_path: str, prediction: list[float], output_dir: str) -> None:
+
+def load_model(
+    model: torch.nn.Module,
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    path: str = "checkpoints/best_model.pth",
+    map_location: str = "cpu",
+) -> tuple[torch.nn.Module, Optional[torch.optim.Optimizer], int, float]:
     """
-    Label a video with the predicted class and save it to the output directory.
+    Load model and optimizer state from a checkpoint.
 
     Args:
-        video_path (str): Path to the input video.
-        prediction (list[float]): List of probabilities for each class.
-        output_dir (str): Directory to save the labeled video.
+        model (torch.nn.Module): Model to load weights into.
+        optimizer (Optional[torch.optim.Optimizer]): Optimizer to load (optional).
+        path (str): Path to the checkpoint file.
+        map_location (str): Device to map the model (default: "cpu").
 
     Returns:
-        None
+        tuple: (model, optimizer, epoch, loss)
     """
-    class_names: list[str] = get_class_names()
-    predicted_class: str = class_names[np.argmax(prediction)]
-    output_filename: str = f"{predicted_class}_{os.path.basename(video_path)}"
-    output_path: str = os.path.join(output_dir, output_filename)
+    checkpoint = torch.load(path, map_location=map_location)
+    model.load_state_dict(checkpoint["model_state_dict"])
 
-    cap: cv2.VideoCapture = cv2.VideoCapture(video_path)
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
+    if optimizer is not None and "optimizer_state_dict" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        # Add label to the frame
-        cv2.putText(frame, f'Predicted: {predicted_class}', (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
-        out.write(frame)
+    epoch = checkpoint.get("epoch", 0)
+    loss = checkpoint.get("loss", float("inf"))
 
-    cap.release()
-    out.release()
-
-def get_model_predictions(model: torch.nn.Module, input_tensor: torch.Tensor) -> dict[str, list[float]]:
-    """
-    Get predictions from the model for the given input tensor.
-
-    Args:
-        model (torch.nn.Module): The trained model to generate predictions.
-        input_tensor (torch.Tensor): Input tensor of shape (batch_size, sequence_length, channels, height, width).
-
-    Returns:
-        dict[str, list[float]]: Dictionary where keys are class names and values are their corresponding probabilities.
-    """
-    model.eval()  # Set the model to evaluation mode
-    with torch.no_grad():
-        output = model(input_tensor)  # Get model output
-        probabilities = torch.softmax(output, dim=1).numpy()  # Apply softmax to get probabilities
-
-    predictions: dict[str, list[float]] = dict()
-    class_names: list[str] = get_class_names()
-    for i, prob in enumerate(probabilities):
-        predictions[class_names[np.argmax(prob)]] = prob.tolist()  # Store the probabilities for the predicted class
-
-    return predictions
+    print(f"✅ Loaded checkpoint from {path} (epoch {epoch}, loss {loss:.4f})")
+    return model, optimizer, epoch, loss

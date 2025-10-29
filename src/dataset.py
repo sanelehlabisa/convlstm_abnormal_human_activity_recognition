@@ -1,83 +1,144 @@
+"""
+dataset.py
+
+Dataset loader for the ConvLSTM-based Abnormal Human Activity Recognition (AHAR) project.
+Automatically detects class folders, loads videos, applies augmentations, and
+stores data in memory for model training or visualization.
+
+Author: Sanele Hlabisa
+"""
+
+from __future__ import annotations
 import os
+import random
 import numpy as np
 import cv2
-from sklearn.model_selection import train_test_split
 from PIL import Image
 from torchvision import transforms
-from utils import get_class_names  # Importing the utility function
+from typing import Any
 
-class ActivityDataset:
-    def __init__(self, input_dir, augmentations=None):
+from utils import (
+    WIDTH,
+    HEIGHT,
+    DATASET_SPLIT,
+    display_frames,
+)
+
+
+class AHARDataset:
+    """
+    Dataset class for Abnormal Human Activity Recognition.
+
+    Reads dataset folders structured as:
+        dataset/
+            walking/
+                video1.avi
+                video2.avi
+            running/
+                video1.avi
+                ...
+
+    Attributes:
+        input_dir (str): Root directory of dataset.
+        class_names (list[str]): Names of the classes (from subfolder names).
+        num_classes (int): Total number of classes.
+        X (list[list[np.ndarray]]): Loaded video frame sequences.
+        Y (list[np.ndarray]): Corresponding one-hot encoded labels.
+    """
+
+    def __init__(self, input_dir: str, augmentations: Any | None = None) -> None:
         self.input_dir = input_dir
-        self.X = []
-        self.Y = []
-        self.class_counts = {class_name: None for class_name in get_class_names()}
-        self.augmentations = augmentations if augmentations else self.default_augmentations()
-        self.num_classes = len(self.class_counts)
+        print(os.listdir(input_dir))
+        self.class_names = sorted(
+            [d for d in os.listdir(input_dir) if os.path.isdir(os.path.join(input_dir, d))]
+        )
+        self.num_classes = len(self.class_names)
+        self.augmentations = augmentations or self._default_augmentations()
 
-    def default_augmentations(self):
-        # Define default augmentations
-        return transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(10),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-            transforms.Resize((128, 128)),  # Resize for consistency
-            transforms.ToTensor()
-        ])
+        self.X: list[list[np.ndarray]] = []
+        self.Y: list[np.ndarray] = []
 
-    def extract_frames(self, video_path):
-        frames = []
+        self._load_dataset()
+
+    # ------------------------
+    # Internal helpers
+    # ------------------------
+    def _default_augmentations(self) -> transforms.Compose:
+        """Return default augmentations for frames."""
+        return transforms.Compose(
+            [
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(10),
+                transforms.ColorJitter(0.2, 0.2, 0.2, 0.1),
+                transforms.Resize((HEIGHT, WIDTH)),
+            ]
+        )
+
+    def _extract_frames(self, video_path: str) -> list[np.ndarray]:
+        """Extract frames from a video file."""
+        frames: list[np.ndarray] = []
         cap = cv2.VideoCapture(video_path)
+
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
             frames.append(frame)
+
         cap.release()
         return frames
 
-    def apply_augmentations(self, frame):
-        pil_image = Image.fromarray(frame)  # Convert to PIL Image for augmentation
-        return self.augmentations(pil_image)
+    def _apply_augmentations(self, frame: np.ndarray) -> np.ndarray:
+        """Apply augmentations to a single frame."""
+        pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        augmented = self.augmentations(pil_img)
+        return np.array(augmented)
 
-    def load_data(self):
-        for i, class_name in enumerate(get_class_names()):
-            print(f"Processing class: {class_name}")
-            y_t = np.zeros(self.num_classes)
-            y_t[i] = 1  # One-hot encoding for the class label
+    def _load_dataset(self) -> None:
+        """Load all videos and their corresponding labels into memory."""
 
+        for i, class_name in enumerate(self.class_names):
             class_dir = os.path.join(self.input_dir, class_name)
-            list_files = os.listdir(class_dir)
+            video_files = [f for f in os.listdir(class_dir) if f.endswith((".avi", ".mp4"))]
 
-            self.class_counts[class_name] = len(list_files)  # Count videos in the class
+            for video_file in video_files:
+                video_path = os.path.join(class_dir, video_file)
+                frames = self._extract_frames(video_path)
+                if not frames:
+                    continue
 
-            for file_name in list_files:
-                video_path = os.path.join(class_dir, file_name)
-                frames = self.extract_frames(video_path)
+                augmented_frames = [self._apply_augmentations(f) for f in frames]
+                label = np.zeros(self.num_classes)
+                label[i] = 1
 
-                # Apply augmentations to each frame
-                augmented_frames = [self.apply_augmentations(frame) for frame in frames]
                 self.X.append(augmented_frames)
-                self.Y.append(y_t)
+                self.Y.append(label)
 
-        self.X = np.array(self.X)
-        self.Y = np.array(self.Y)
+        print(f"✅ Loaded {len(self.X)} videos across {self.num_classes} classes.")
 
-    def get_train_val_test_split(self, test_size=0.1, val_size=0.2):
-        # First, split into train + val and test
-        X_temp, X_test, y_temp, y_test = train_test_split(self.X, self.Y, test_size=test_size, random_state=42)
 
-        # Now, split the temp into train and validation
-        val_ratio = val_size / (1 - test_size)  # Adjust for the reduced dataset
-        X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=val_ratio, random_state=42)
-
-        return X_train, X_val, X_test, y_train, y_val, y_test
-
+# ------------------------
+# Main entry point
+# ------------------------
 def main() -> None:
-    dataset = ActivityDataset(input_dir='path/to/dataset')
-    dataset.load_data()
-    X_train, X_val, X_test, y_train, y_val, y_test = dataset.get_train_val_test_split()
-    return
+    """
+    Test dataset loading and visualization.
+    Randomly selects 3–5 samples and displays them using display_frames().
+    """
+    dataset_path = "../dataset"
+    dataset = AHARDataset(dataset_path)
+
+    num_samples = random.randint(3, 5)
+    print(f"[INFO] Displaying {num_samples} random samples...")
+
+    for _ in range(num_samples):
+        idx = random.randint(0, len(dataset.X) - 1)
+        frames = dataset.X[idx]
+        label = dataset.Y[idx]
+        label_name = dataset.class_names[np.argmax(label)]
+
+        display_frames(frames[:15], label=label_name)  # Show first few frames
+
 
 if __name__ == "__main__":
     main()
