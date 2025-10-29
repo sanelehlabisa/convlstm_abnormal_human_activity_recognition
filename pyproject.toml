@@ -1,0 +1,33 @@
+[project]
+name = "convlstm-abnormal-human-activity-recognition"
+version = "0.1.0"
+description = "An implementation of an Abnormal Human Activity Recognition Model that is based on ConvLSTM"
+authors = [
+    {name = "Sanele Hlabisa <hlabisasanele730@gmail.com>"}
+]
+license = {text = "Apache 2.0"}
+readme = "README.md"
+requires-python = ">=3.13,<3.15"
+dependencies = [
+    "numpy>=2.2,<2.3",
+    "pandas>=2.2,<3.0",
+    "matplotlib>=3.9,<4.0",
+    "pillow>=10.4,<11.0",
+    "scikit-learn>=1.6,<2.0",
+    "opencv-python>=4.12,<5.0",
+    "torch>=2.8,<3.0",
+    "torchvision>=0.23,<1.0"
+]
+
+[tool.poetry]
+packages = [{include = "src"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pylint (>=4.0.2,<5.0.0)",
+    "black (>=25.9.0,<26.0.0)"
+]
