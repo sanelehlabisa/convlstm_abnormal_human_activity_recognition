@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import torch
 import cv2
+import shutil
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional
@@ -20,13 +21,15 @@ from typing import Optional
 # Configuration constants
 # ========================
 BATCH_SIZE: int = 8
-SEQUENCE_LENGTH: int = 15
-WIDTH: int = 320
-HEIGHT: int = 320
-LEARNING_RATE: float = 1e-4
-EPOCHS: int = 32
+SEQUENCE_LENGTH: int = 32
+WIDTH: int = 128
+HEIGHT: int = 128
+LEARNING_RATE: float = 1e-3
+EPOCHS: int = 64
 NUM_CHANNELS: int = 3
 DATASET_SPLIT: tuple[float, float, float] = (0.7, 0.2, 0.1)
+DATASET_DIR: str = "dataset"
+OUTPUTS_DIR: str = "outputs"
 
 
 # ========================
@@ -54,7 +57,7 @@ def display_frames(
     cols = min(num_frames, 5)
     rows = (num_frames + cols - 1) // cols
 
-    plt.figure(figsize=(cols * 3, rows * 3))
+    plt.figure(figsize=(cols * 5, rows * 5))
 
     for i, frame in enumerate(frames):
         plt.subplot(rows, cols, i + 1)
@@ -70,7 +73,30 @@ def display_frames(
 
     plt.suptitle(title, fontsize=12)
     plt.tight_layout()
-    plt.show()
+    plt.savefig(f"{OUTPUTS_DIR}/{label}frames.png")
+
+def get_device() -> torch.device:
+    """Return available device (CUDA if possible)."""
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def plot_training_curves(train_loss, val_loss, train_acc, val_acc, save_path=f"{OUTPUTS_DIR}/training_curves.png"):
+    """Plot training vs validation loss and accuracy."""
+    import matplotlib.pyplot as plt
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    epochs = range(1, len(train_loss) + 1)
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, train_loss, label="Train")
+    plt.plot(epochs, val_loss, label="Val")
+    plt.title("Loss")
+    plt.legend()
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, train_acc, label="Train")
+    plt.plot(epochs, val_acc, label="Val")
+    plt.title("Accuracy")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(save_path)
 
 
 # ========================
@@ -81,22 +107,37 @@ def save_model(
     optimizer: torch.optim.Optimizer,
     epoch: int,
     loss: float,
-    path: str = "checkpoints/best_model.pth",
+    base_path: str = "models",
+    src_dir: str = "src",
 ) -> None:
     """
-    Save model weights, optimizer state, current epoch, and loss.
+    Save model checkpoint along with a reproducible snapshot of the code.
+
+    Creates a subfolder within `models/` named `model_{val_loss:.4f}` for this checkpoint,
+    copies the current `src/` directory into it, and saves the model and optimizer state.
+
+    Also updates `best_model.pth` in the base folder for resuming training easily.
 
     Args:
         model (torch.nn.Module): Model to save.
         optimizer (torch.optim.Optimizer): Optimizer instance.
         epoch (int): Current epoch number.
-        loss (float): Best loss achieved.
-        path (str): Path to save the checkpoint.
+        loss (float): Validation loss (used in folder name).
+        base_path (str): Root folder to save model checkpoints.
+        src_dir (str): Source code folder to copy for reproducibility.
 
     Returns:
         None
     """
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(base_path, exist_ok=True)
+
+    # Folder for this specific checkpoint
+    folder_name = f"model_{loss:.4f}"
+    folder_path = os.path.join(base_path, folder_name)
+    os.makedirs(folder_path, exist_ok=True)
+
+    # Save checkpoint in this folder
+    ckpt_path = os.path.join(folder_path, "checkpoint.pth")
     torch.save(
         {
             "model_state_dict": model.state_dict(),
@@ -104,37 +145,55 @@ def save_model(
             "epoch": epoch,
             "loss": loss,
         },
-        path,
+        ckpt_path,
     )
-    print(f"✅ Model checkpoint saved at: {path}")
 
+    # Copy src folder for reproducibility
+    src_copy_path = os.path.join(folder_path, "src")
+    if os.path.exists(src_copy_path):
+        shutil.rmtree(src_copy_path)
+    shutil.copytree(src_dir, src_copy_path)
+
+    print(f"✅ Saved checkpoint at {ckpt_path} with source code snapshot.")
+
+    # Update best_model.pth in base_path for easy resume
+    best_model_path = os.path.join(base_path, "best_model.pth")
+    shutil.copy2(ckpt_path, best_model_path)
+    print(f"✅ Updated best_model.pth at {best_model_path}")
 
 def load_model(
     model: torch.nn.Module,
     optimizer: Optional[torch.optim.Optimizer] = None,
-    path: str = "checkpoints/best_model.pth",
+    base_path: str = "models",
     map_location: str = "cpu",
 ) -> tuple[torch.nn.Module, Optional[torch.optim.Optimizer], int, float]:
     """
-    Load model and optimizer state from a checkpoint.
+    Load model and optimizer state from the latest best checkpoint if available.
 
     Args:
         model (torch.nn.Module): Model to load weights into.
-        optimizer (Optional[torch.optim.Optimizer]): Optimizer to load (optional).
-        path (str): Path to the checkpoint file.
-        map_location (str): Device to map the model (default: "cpu").
+        optimizer (Optional[torch.optim.Optimizer]): Optimizer to load state into (optional).
+        base_path (str): Base folder where models/best_model.pth is stored.
+        map_location (str): Device mapping for model.
 
     Returns:
-        tuple: (model, optimizer, epoch, loss)
+        tuple: (model, optimizer, start_epoch, best_loss)
     """
-    checkpoint = torch.load(path, map_location=map_location)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    best_model_path = os.path.join(base_path, "best_model.pth")
 
-    if optimizer is not None and "optimizer_state_dict" in checkpoint:
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if os.path.exists(best_model_path):
+        checkpoint = torch.load(best_model_path, map_location=map_location)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        start_epoch = checkpoint.get("epoch", 0)
+        best_loss = checkpoint.get("loss", float("inf"))
 
-    epoch = checkpoint.get("epoch", 0)
-    loss = checkpoint.get("loss", float("inf"))
+        if optimizer is not None and "optimizer_state_dict" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-    print(f"✅ Loaded checkpoint from {path} (epoch {epoch}, loss {loss:.4f})")
-    return model, optimizer, epoch, loss
+        print(f"✅ Loaded checkpoint from {best_model_path} (epoch {start_epoch}, loss {best_loss:.4f})")
+    else:
+        start_epoch = 0
+        best_loss = float("inf")
+        print(f"⚠️ No existing checkpoint found at {best_model_path}. Starting fresh.")
+
+    return model, optimizer, start_epoch, best_loss
