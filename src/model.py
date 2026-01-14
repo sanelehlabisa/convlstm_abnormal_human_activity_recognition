@@ -2,137 +2,147 @@
 model.py
 
 ConvLSTM model for video classification in the Abnormal Human Activity Recognition (AHAR) project.
-Combines convolutional layers for spatial features and LSTM for temporal modeling.
+CNN extracts spatial features per frame, LSTM models temporal dynamics.
 
 Author: Sanele Hlabisa
 """
 
 from __future__ import annotations
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import random
 
-from src.dataset import AHARDataset
-from src.utils import display_frames
+from dataset import AHARDataset
+from utils import display_video_grid
 
+
+# ============================================================
+# Model
+# ============================================================
 
 class ConvLSTMModel(nn.Module):
     """
     CNN + LSTM model for video classification.
-    Extracts spatial features with CNN, then models temporal relationships with LSTM.
+    Input shape: (B, T, C, H, W)
+    Output shape: (B, num_classes)
     """
 
-    def __init__(self, num_classes: int) -> None:
+    def __init__(
+        self,
+        num_classes: int,
+        hidden_size: int = 256,
+        dropout: float = 0.5,
+        input_shape: tuple[int, int, int] = (3, 224, 224),
+    ) -> None:
         super().__init__()
 
-        # --- Convolutional feature extractor ---
+        # -------- CNN backbone --------
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(16, 64, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(4)  # Downsample H, W by /4
+        self.pool = nn.MaxPool2d(4)
 
-        # Placeholder — will be set after seeing first forward
-        self.lstm = None
-        self.fc1 = None
-        self.num_classes = num_classes
-        self.dropout = nn.Dropout(0.5)
+        # -------- Infer CNN feature size safely --------
+        with torch.no_grad():
+            dummy = torch.zeros(1, *input_shape)
+            dummy = self._cnn_forward(dummy)
+            self.feature_dim = dummy.view(1, -1).size(1)
 
-    def _init_lstm_fc(self, feature_dim: int) -> None:
-        """Initialize LSTM and FC layers dynamically based on feature size."""
-        self.lstm = nn.LSTM(input_size=feature_dim, hidden_size=256, batch_first=True)
-        self.fc1 = nn.Linear(256, self.num_classes)
+        # -------- LSTM + classifier --------
+        self.lstm = nn.LSTM(
+            input_size=self.feature_dim,
+            hidden_size=hidden_size,
+            batch_first=True,
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden_size, num_classes)
+
+    def _cnn_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """CNN forward for a single frame batch."""
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = self.pool(x)
+        return x
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through the ConvLSTM network.
-
         Args:
-            x: Input tensor of shape (batch, seq_len, channels, height, width)
-
+            x: Tensor (B, T, C, H, W)
         Returns:
-            torch.Tensor: Model output logits (batch, num_classes)
+            logits: Tensor (B, num_classes)
         """
-        batch_size, seq_len, C, H, W = x.size()
-        #print(f"Input shape: {x.shape}  (B={batch_size}, T={seq_len}, C={C}, H={H}, W={W})")
+        B, T, C, H, W = x.shape
 
-        # Flatten sequence into batch dimension for CNN
-        x = x.view(batch_size * seq_len, C, H, W)
+        # Merge batch & time for CNN
+        x = x.view(B * T, C, H, W)
+        x = self._cnn_forward(x)
 
-        # --- CNN feature extraction ---
-        x = F.relu(self.conv1(x))
-        #print(f"After conv1: {x.shape}")  # -> (B*T, 16, H, W)
+        # Restore temporal dimension
+        x = x.view(B, T, -1)
 
-        x = F.relu(self.conv2(x))
-        #print(f"After conv2: {x.shape}")  # -> (B*T, 64, H, W)
-
-        x = self.pool(x)
-        #print(f"After maxpool: {x.shape}")  # -> (B*T, 64, H/4, W/4)
-
-        # --- Flatten spatial dimensions ---
-        x = x.view(batch_size, seq_len, -1)
-        #print(f"After flatten: {x.shape}")  # -> (B, T, F)
-
-        # Initialize LSTM dynamically (only once)
-        if self.lstm is None:
-            feature_dim = x.size(-1)
-            #print(f"Initializing LSTM with input_size={feature_dim}")
-            self._init_lstm_fc(feature_dim)
-
-        # --- Temporal modeling with LSTM ---
+        # Temporal modeling
         x, _ = self.lstm(x)
-        #print(f"After LSTM: {x.shape}")  # -> (B, T, hidden_size)
 
-        x = x[:, -1, :]  # take last frame’s output
-        #print(f"After last-frame select: {x.shape}")
-
-        # --- Classification ---
+        # Last timestep
+        x = x[:, -1, :]
         x = self.dropout(x)
-        x = self.fc1(x)
-        #print(f"Final output: {x.shape}")  # -> (B, num_classes)
 
-        return x
+        return self.fc(x)
 
+
+# ============================================================
+# Sanity test / visualization
+# ============================================================
 
 def main() -> None:
     """
-    Test model forward pass and visualize random video prediction.
+    Sanity check:
+    - Load dataset
+    - Run single forward pass
+    - Visualize frames with prediction
     """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🖥 Using device: {device}")
+
     print("📂 Loading dataset...")
-    dataset: AHARDataset = AHARDataset()
+    dataset = AHARDataset(
+        dataset_dir="dataset",
+        sequence_length=10,
+        frame_size=(224, 224),
+    )
 
-    # Initialize model
-    model = ConvLSTMModel(num_classes=dataset.num_classes)
+    # Random sample
+    idx = random.randint(0, len(dataset) - 1)
+    frames, true_label = dataset[idx]          # (T, C, H, W)
+    frames = frames.to(device)
+
+    # Model
+    model = ConvLSTMModel(
+        num_classes=dataset.num_classes,
+        input_shape=frames.shape[1:],  # (C, H, W)
+    ).to(device)
+
     model.eval()
-
-    # Pick a random video sample
-    idx = random.randint(0, len(dataset.X) - 1)
-    frames = dataset.X[idx]
-    label_vec = dataset.Y[idx]
-    label_name = dataset.class_names[label_vec.argmax()]
-
-    # Convert frames (NumPy → Tensor) and stack
-    seq_tensor = torch.stack([
-        torch.tensor(f, dtype=torch.float32).permute(2, 0, 1) / 255.0  # normalize 0–1
-        for f in frames
-    ]).unsqueeze(0)  # Add batch dim
-
-    print(f"\n🎞 Input tensor shape: {seq_tensor.shape}  "
-          f"(batch={seq_tensor.size(0)}, seq={seq_tensor.size(1)}, "
-          f"C={seq_tensor.size(2)}, H={seq_tensor.size(3)}, W={seq_tensor.size(4)})")
-
-    # Forward pass
     with torch.no_grad():
-        outputs = model(seq_tensor)
-        probs = torch.softmax(outputs, dim=1)
-        pred_idx = probs.argmax(dim=1).item()
-        pred_class = dataset.class_names[pred_idx]
+        logits = model(frames.unsqueeze(0))    # (1, T, C, H, W)
+        probs = torch.softmax(logits, dim=1)
+        pred_label = probs.argmax(dim=1).item()
 
-    print(f"✅ Model output shape: {outputs.shape}")
-    print(f"🔹 True class: {label_name}")
-    print(f"🔹 Predicted class: {pred_class}")
+    print(f"✅ Input shape: {frames.shape}")
+    print(f"✅ Logits shape: {logits.shape}")
+    print(f"🔹 True class: {dataset.class_names[true_label]}")
+    print(f"🔹 Predicted class: {dataset.class_names[pred_label]}")
     print(f"🔹 Probabilities: {probs[0].cpu().numpy()}")
 
-    display_frames(frames, label=label_name, prediction=pred_class, probs=probs[0].cpu().numpy())
+    # Visualization
+    display_video_grid(
+        video=frames.cpu(),
+        class_names=dataset.class_names,
+        true_label=true_label,
+        pred_label=pred_label,
+        save_path="sample_prediction.png",
+    )
 
 
 if __name__ == "__main__":

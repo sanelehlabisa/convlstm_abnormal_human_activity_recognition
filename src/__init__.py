@@ -1,5 +1,5 @@
 from .dataset import *
 from .evaluation import *
 from .model import *
-from .training import *
+from .train import *
 from .utils import *

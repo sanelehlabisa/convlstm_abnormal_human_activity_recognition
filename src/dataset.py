@@ -1,185 +1,136 @@
 """
-dataset.py
-
-Dataset loader for the ConvLSTM-based Abnormal Human Activity Recognition (AHAR) project.
-Automatically detects class folders, loads videos, applies augmentations, and
-stores data in memory for model training or visualization.
+Lazy-loading Dataset + Visualization utilities for ConvLSTM AHAR
 
 Author: Sanele Hlabisa
 """
 
 from __future__ import annotations
-import os
-import random
-import numpy as np
-import cv2
+
+from pathlib import Path
+from typing import Optional
+
 import torch
-from PIL import Image
+from torch.utils.data import Dataset
+import torchvision
 from torchvision import transforms
-from typing import Any
 
-from utils import (
-    WIDTH,
-    HEIGHT,
-    DATASET_DIR,
-    SEQUENCE_LENGTH,
-    display_frames,
-)
+from utils import display_video_grid
 
+# ============================================================
+# Dataset
+# ============================================================
 
-class AHARDataset:
+class AHARDataset(Dataset):
     """
-    Dataset class for Abnormal Human Activity Recognition.
+    Lazy-loading dataset for Abnormal Human Activity Recognition (AHAR).
 
-    Reads dataset folders structured as:
-        dataset/
-            walking/
-                video1.avi
-                video2.avi
-            running/
-                video1.avi
-                ...
-
-    Attributes:
-        dataset_dir (str): Root directory of dataset.
-        class_names (list[str]): Names of the classes (from subfolder names).
-        num_classes (int): Total number of classes.
-        X (list[list[np.ndarray]]): Loaded video frame sequences.
-        Y (list[np.ndarray]): Corresponding one-hot encoded labels.
+    Returns:
+        video: Tensor (T, C, H, W)
+        label: int
     """
 
-    def __init__(self, dataset_dir: str = DATASET_DIR, augmentations: Any | None = None) -> None:
-        self.dataset_dir = dataset_dir
-        print(os.listdir(dataset_dir))
-        self.class_names = sorted(
-            [d for d in os.listdir(dataset_dir) if os.path.isdir(os.path.join(dataset_dir, d))]
-        )
-        self.num_classes = len(self.class_names)
-        self.augmentations = augmentations or self._default_augmentations()
+    SUPPORTED_EXTS = {".mp4", ".avi", ".mov", ".mkv"}
 
-        self.X: list[list[np.ndarray]] = []
-        self.Y: list[np.ndarray] = []
+    def __init__(
+        self,
+        dataset_dir: str | Path,
+        sequence_length: int = 10,
+        frame_size: tuple[int, int] = (224, 224),
+        transform: Optional[transforms.Compose] = None,
+    ) -> None:
+        self.dataset_dir = Path(dataset_dir)
+        self.sequence_length = sequence_length
+        self.frame_size = frame_size
 
-        self._load_dataset()
-
-    # ------------------------
-    # Internal helpers
-    # ------------------------
-    def _default_augmentations(self) -> transforms.Compose:
-        """Return default augmentations for frames."""
-        return transforms.Compose(
+        # Default transform
+        self.transform = transform or transforms.Compose(
             [
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(10),
-                transforms.ColorJitter(0.2, 0.2, 0.2, 0.1),
-                transforms.Resize((HEIGHT, WIDTH)),
+                transforms.ToTensor(),          # (H, W, C) → (C, H, W)
+                transforms.Resize(frame_size),
             ]
         )
 
-    def _extract_frames(self, video_path: str) -> list[np.ndarray]:
-        """Extract frames from a video file."""
-        frames: list[np.ndarray] = []
-        cap = cv2.VideoCapture(video_path)
+        # Discover classes
+        self.class_names = sorted(
+            d.name for d in self.dataset_dir.iterdir() if d.is_dir()
+        )
+        self.class_to_idx = {c: i for i, c in enumerate(self.class_names)}
+        self.num_classes = len(self.class_names)
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frames.append(frame)
+        # Index all videos (lazy loading)
+        self.samples: list[tuple[Path, int]] = []
+        for class_name in self.class_names:
+            class_dir = self.dataset_dir / class_name
+            for file in class_dir.iterdir():
+                if file.suffix.lower() in self.SUPPORTED_EXTS:
+                    self.samples.append((file, self.class_to_idx[class_name]))
 
-        cap.release()
-        return frames
+        print(f"✅ Found {len(self.samples)} videos across {self.num_classes} classes")
+        print("⚡ Lazy-loading enabled")
 
-    def _apply_augmentations(self, frame: np.ndarray) -> np.ndarray:
-        """Apply augmentations to a single frame."""
-        pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        augmented = self.augmentations(pil_img)
-        return np.array(augmented)
-
-    def _load_dataset(self) -> None:
-        """Load all videos and their corresponding labels into memory."""
-
-        for i, class_name in enumerate(self.class_names):
-            class_dir = os.path.join(self.dataset_dir, class_name)
-            video_files = [f for f in os.listdir(class_dir) if f.endswith((".avi", ".mp4"))]
-
-            for video_file in video_files:
-                video_path = os.path.join(class_dir, video_file)
-                frames = self._extract_frames(video_path)
-
-                if not frames:
-                    continue
-
-                # ✅ Limit or sample frames to SEQUENCE_LENGTH
-                if len(frames) >= SEQUENCE_LENGTH:
-                    # take evenly spaced frames if video is long
-                    step = max(1, len(frames) // SEQUENCE_LENGTH)
-                    frames = frames[::step][:SEQUENCE_LENGTH]
-                else:
-                    # pad by repeating last frame if too short
-                    frames += [frames[-1]] * (SEQUENCE_LENGTH - len(frames))
-
-                # Apply augmentations
-                augmented_frames = [self._apply_augmentations(f) for f in frames]
-
-                # Label setup
-                label = np.zeros(self.num_classes)
-                label[i] = 1
-
-                self.X.append(augmented_frames)
-                self.Y.append(label)
-
-        print(f"✅ Loaded {len(self.X)} videos across {self.num_classes} classes "
-              f"with {SEQUENCE_LENGTH} frames each.")
-        
     def __len__(self) -> int:
-        """Return the total number of video samples in the dataset."""
-        return len(self.X)
-    
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return len(self.samples)
+
+    def _sample_frames(self, video: torch.Tensor) -> torch.Tensor:
         """
-        Return a single sample from the dataset as tensors.
-
-        Args:
-            index (int): Index of the sample.
-
-        Returns:
-            tuple: (frames_tensor, label_tensor)
-                   - frames_tensor: Tensor of shape (seq_len, C, H, W)
-                   - label_tensor: Tensor of shape (num_classes,)
+        Uniformly sample sequence_length frames.
+        video shape: (T, H, W, C)
         """
-        frames = self.X[index]
-        label = self.Y[index]
+        total_frames = video.shape[0]
 
-        # Convert frames (NumPy → Tensor) and permute to (C, H, W)
-        frames_tensor = torch.stack([
-            torch.tensor(f, dtype=torch.float32).permute(2, 0, 1) / 255.0
-            for f in frames
-        ])
-        label_tensor = torch.tensor(label, dtype=torch.float32)
-        return frames_tensor, label_tensor
+        if total_frames >= self.sequence_length:
+            idx = torch.linspace(0, total_frames - 1, self.sequence_length).long()
+            video = video[idx]
+        else:
+            pad = self.sequence_length - total_frames
+            video = torch.cat([video, video[-1:].repeat(pad, 1, 1, 1)], dim=0)
 
+        return video
 
-# ------------------------
-# Main entry point
-# ------------------------
+    def __getitem__(self, index: int):
+        video_path, label = self.samples[index]
+
+        try:
+            video, _, _ = torchvision.io.read_video(
+                str(video_path), pts_unit="sec"
+            )
+        except Exception as e:
+            # fallback: sample a different video
+            new_index = (index + 1) % len(self)
+            return self[new_index]
+
+        video = self._sample_frames(video)
+        frames = torch.stack([self.transform(frame.numpy()) for frame in video])
+        return frames, label
+
+# ============================================================
+# Quick sanity test
+# ============================================================
+
 def main() -> None:
-    """
-    Test dataset loading and visualization.
-    Randomly selects 3–5 samples and displays them using display_frames().
-    """
-    dataset = AHARDataset()
+    dataset = AHARDataset(
+        dataset_dir="dataset",
+        sequence_length=8,
+        frame_size=(224, 224),
+    )
 
-    num_samples = random.randint(3, 5)
-    print(f"[INFO] Displaying {num_samples} random samples...")
+    idx = torch.randint(0, len(dataset), (1,)).item()
+    video, label = dataset[idx]
 
-    for _ in range(num_samples):
-        idx = random.randint(0, len(dataset.X) - 1)
-        frames = dataset.X[idx]
-        label = dataset.Y[idx]
-        label_name = dataset.class_names[np.argmax(label)]
+    print("Video shape:", video.shape)      # (T, C, H, W)
+    print("Label:", label)
+    print("Pixel range:", video.min().item(), video.max().item())
 
-        display_frames(frames[:15], label=label_name)  # Show first few frames
+    display_video_grid(
+        video,
+        class_names=dataset.class_names,
+        true_label=label,
+        pred_label=None,  # can pass model output later
+        max_cols=4,
+        frame_size=3,
+        show=False,
+        save_path="output.png",
+    )
 
 
 if __name__ == "__main__":
