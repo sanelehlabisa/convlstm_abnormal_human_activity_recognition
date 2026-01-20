@@ -20,9 +20,9 @@ from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 import torchmetrics
 
-from dataset import AHARDataset
-from model import ConvLSTMModel
-from utils import (
+from .dataset import AHARDataset
+from .model import ConvLSTMModel
+from .utils import (
     save_model,
     plot_training_curves,
     display_video_grid,

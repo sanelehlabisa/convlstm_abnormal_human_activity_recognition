@@ -14,7 +14,7 @@ from torch.utils.data import Dataset
 import torchvision
 from torchvision import transforms
 
-from utils import display_video_grid
+from .utils import display_video_grid
 
 # ============================================================
 # Dataset

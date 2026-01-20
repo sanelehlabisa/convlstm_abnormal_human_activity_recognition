@@ -14,8 +14,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 
-from dataset import AHARDataset
-from utils import display_video_grid
+from .dataset import AHARDataset
+from .utils import display_video_grid
 
 
 # ============================================================
