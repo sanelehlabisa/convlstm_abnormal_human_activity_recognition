@@ -212,6 +212,8 @@ __marimo__/
 # Dataset
 dataset/
 
+dataset*/
+
 # Model checkpoints
 models/
 checkpoints/
