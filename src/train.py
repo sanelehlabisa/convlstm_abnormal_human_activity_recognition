@@ -34,14 +34,14 @@ from .utils import (
 
 parser = argparse.ArgumentParser(description="Train ConvLSTM model for AHAR")
 
-parser.add_argument("--dataset_dir", type=str, default="dataset")
+parser.add_argument("--dataset_dir", type=str, default="dataset_clean")
 parser.add_argument("--model_dir", type=str, default="models")
 parser.add_argument("--batch_size", type=int, default=8)
-parser.add_argument("--epochs", type=int, default=10)
-parser.add_argument("--learning_rate", type=float, default=1e-3)
+parser.add_argument("--epochs", type=int, default=16)
+parser.add_argument("--learning_rate", type=float, default=1e-4)
 parser.add_argument("--weight_decay", type=float, default=1e-4)
 
-parser.add_argument("--sequence_length", type=int, default=16)
+parser.add_argument("--sequence_length", type=int, default=32)
 parser.add_argument("--width", type=int, default=128)
 parser.add_argument("--height", type=int, default=128)
 
@@ -65,28 +65,28 @@ def train_one_epoch(
 ) -> tuple[float, float]:
 
     model.train()
-    accuracy_fn.reset()
 
     total_loss = 0.0
+    total_accuracy = 0.0
 
     for X, y in tqdm(loader, leave=False):
         X = X.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
 
-        optimizer.zero_grad()
         logits = model(X)
         loss = criterion(logits, y)
 
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
-        accuracy_fn.update(logits.softmax(dim=1), y)
+        total_accuracy += accuracy_fn(logits.argmax(dim=1), y)
 
     avg_loss = total_loss / len(loader)
-    avg_acc = accuracy_fn.compute().item()
+    avg_accuracy = total_accuracy / len(loader)
 
-    return avg_loss, avg_acc
+    return avg_loss, avg_accuracy
 
 
 @torch.inference_mode()
@@ -99,9 +99,9 @@ def validate_one_epoch(
 ) -> tuple[float, float]:
 
     model.eval()
-    accuracy_fn.reset()
 
     total_loss = 0.0
+    total_accuracy = 0.0
 
     for X, y in loader:
         X = X.to(device, non_blocking=True)
@@ -111,12 +111,12 @@ def validate_one_epoch(
         loss = criterion(logits, y)
 
         total_loss += loss.item()
-        accuracy_fn.update(logits.softmax(dim=1), y)
+        total_accuracy += accuracy_fn(logits.argmax(dim=1), y)
 
     avg_loss = total_loss / len(loader)
-    avg_acc = accuracy_fn.compute().item()
+    avg_accuracy = total_accuracy / len(loader)
 
-    return avg_loss, avg_acc
+    return avg_loss, avg_accuracy
 
 
 # ============================================================
@@ -182,6 +182,8 @@ def main() -> None:
         input_shape=(3, args.height, args.width),
     ).to(device)
 
+    #model = torch.compile(model=model)
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(
         model.parameters(),
@@ -222,7 +224,7 @@ def main() -> None:
             f"🎯 Acc → Train: {train_acc:.4f} | Val: {val_acc:.4f}"
         )
 
-        save_model(model, optimizer, epoch, val_loss, base_path=args.model_dir)
+        #save_model(model, optimizer, epoch, val_loss, base_path=args.model_dir)
 
     total_time = timer() - start_time
     print(f"\n⏱ Training finished in {total_time:.2f}s")
@@ -253,6 +255,7 @@ def main() -> None:
         class_names=dataset.class_names,
         true_label=true_label,
         pred_label=pred_label,
+        save_path="loss_curves",
     )
 
 
