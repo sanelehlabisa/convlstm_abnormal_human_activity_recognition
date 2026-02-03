@@ -109,7 +109,7 @@ class AHARDataset(Dataset):
 
 def main() -> None:
     dataset = AHARDataset(
-        dataset_dir="dataset",
+        dataset_dir="dataset_clean",
         sequence_length=8,
         frame_size=(224, 224),
     )
