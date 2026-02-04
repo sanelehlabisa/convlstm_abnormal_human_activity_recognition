@@ -80,8 +80,8 @@ def train_one_epoch(
         loss.backward()
         optimizer.step()
 
-        total_loss += loss.item()
-        total_accuracy += accuracy_fn(logits.argmax(dim=1), y)
+        total_loss += loss.cpu().item()
+        total_accuracy += accuracy_fn(logits.argmax(dim=1), y).cpu().item()
 
     avg_loss = total_loss / len(loader)
     avg_accuracy = total_accuracy / len(loader)
@@ -110,8 +110,8 @@ def validate_one_epoch(
         logits = model(X)
         loss = criterion(logits, y)
 
-        total_loss += loss.item()
-        total_accuracy += accuracy_fn(logits.argmax(dim=1), y)
+        total_loss += loss.cpu().item()
+        total_accuracy += accuracy_fn(logits.argmax(dim=1), y).cpu().item()
 
     avg_loss = total_loss / len(loader)
     avg_accuracy = total_accuracy / len(loader)
