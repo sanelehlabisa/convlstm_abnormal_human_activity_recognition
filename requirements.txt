@@ -1,9 +1,9 @@
 astroid==4.0.1
+av==16.1.0
 black==25.9.0
 click==8.3.0
 colorama==0.4.6
 contourpy==1.3.3
--e git+https://github.com/sanelehlabisa/convlstm_abnormal_human_activity_recognition.git@1b1618c867a8a47851a09c160535d55467258294#egg=convlstm_abnormal_human_activity_recognition
 cycler==0.12.1
 dill==0.4.0
 filelock==3.20.0
