@@ -224,7 +224,7 @@ def main() -> None:
             f"🎯 Acc → Train: {train_acc:.4f} | Val: {val_acc:.4f}"
         )
 
-        #save_model(model, optimizer, epoch, val_loss, base_path=args.model_dir)
+        save_model(model, optimizer, epoch, val_loss, base_path=args.model_dir)
 
     total_time = timer() - start_time
     print(f"\n⏱ Training finished in {total_time:.2f}s")
@@ -255,7 +255,7 @@ def main() -> None:
         class_names=dataset.class_names,
         true_label=true_label,
         pred_label=pred_label,
-        save_path="loss_curves",
+        save_path="test_pred.png",
     )
 
 
