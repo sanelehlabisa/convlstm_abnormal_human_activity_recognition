@@ -9,9 +9,11 @@ Author: Sanele Hlabisa
 
 from __future__ import annotations
 
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 import random
 
 from .dataset import AHARDataset
@@ -79,7 +81,7 @@ class ConvLSTMModel(nn.Module):
         x = self._cnn_forward(x)
 
         # Restore temporal dimension
-        x = x.view(B, T, -1)
+        x = x.reshape(B, T, -1)
 
         # Temporal modeling
         x, _ = self.lstm(x)
@@ -108,8 +110,8 @@ def main() -> None:
     print("📂 Loading dataset...")
     dataset = AHARDataset(
         dataset_dir="dataset",
-        sequence_length=10,
-        frame_size=(224, 224),
+        sequence_length=32,
+        frame_size=(64, 64),
     )
 
     # Random sample
@@ -122,6 +124,15 @@ def main() -> None:
         num_classes=dataset.num_classes,
         input_shape=frames.shape[1:],  # (C, H, W)
     ).to(device)
+    
+    model_dir = "models"
+    model_filename = "checkpoint.pth"
+    
+    if model_filename in os.listdir(path=model_dir):
+        print("[INFO] Loading saved model")
+        model.load_state_dict(
+            state_dict=torch.load(f=f"{model_dir}/{model_filename}", weights_only=True, map_location=device)["model_state_dict"]
+        )
 
     model.eval()
     with torch.no_grad():
@@ -133,7 +144,7 @@ def main() -> None:
     print(f"✅ Logits shape: {logits.shape}")
     print(f"🔹 True class: {dataset.class_names[true_label]}")
     print(f"🔹 Predicted class: {dataset.class_names[pred_label]}")
-    print(f"🔹 Probabilities: {probs[0].cpu().numpy()}")
+    print(f"🔹 Probabilities: {np.round(probs[0].cpu().numpy(), 2)}")
 
     # Visualization
     display_video_grid(
