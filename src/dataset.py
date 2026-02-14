@@ -11,6 +11,7 @@ from typing import Optional
 
 import torch
 from torch.utils.data import Dataset
+import torch.nn.functional as F
 import torchvision
 from torchvision import transforms
 
@@ -89,19 +90,32 @@ class AHARDataset(Dataset):
 
     def __getitem__(self, index: int):
         video_path, label = self.samples[index]
-
+    
         try:
             video, _, _ = torchvision.io.read_video(
-                str(video_path), pts_unit="sec"
-            )
-        except Exception as e:
-            # fallback: sample a different video
+                str(video_path),
+                pts_unit="sec",
+            )  # (T, H, W, C) uint8
+        except Exception:
             new_index = (index + 1) % len(self)
             return self[new_index]
-
-        video = self._sample_frames(video)
-        frames = torch.stack([self.transform(frame.numpy()) for frame in video])
-        return frames, label
+    
+        # ---- Temporal sampling first (cheap) ----
+        video = self._sample_frames(video)  # (T, H, W, C)
+    
+        # ---- Convert to (T, C, H, W) float32 ----
+        video = video.permute(0, 3, 1, 2)      # (T, C, H, W)
+        video = video.float().div(255.0)       # normalize
+    
+        # ---- Resize ALL frames at once ----
+        video = F.interpolate(
+            video,
+            size=self.frame_size,
+            mode="bilinear",
+            align_corners=False,
+        )
+    
+        return video, label
 
 # ============================================================
 # Quick sanity test
