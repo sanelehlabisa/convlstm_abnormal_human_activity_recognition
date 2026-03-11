@@ -18,7 +18,7 @@ for video in dataset_dir.glob("*/*"):
 
     cmd = [
         "ffmpeg",
-        "-v", "error",          # 🔥 ONLY show fatal errors
+        "-v", "error",
         "-i", str(video),
         "-map", "0:v:0",
         "-vsync", "0",

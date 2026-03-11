@@ -1,5 +1,5 @@
 from .dataset import Dataset
-from .evaluation import evaluate
+from .evaluate import evaluate
 from .model import ConvLSTMModel
 from .train import train_one_epoch
 from .utils import save_model, display_video_grid, plot_training_curves, load_model
