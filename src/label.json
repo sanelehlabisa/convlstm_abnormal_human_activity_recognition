@@ -1,0 +1,12 @@
+{
+  "multiclass": {
+    "punch":            ["fighting", "violent", "violence", "assault"],
+    "walking":          ["normal", "non-violent", "non_violent", "walk"],
+    "rock climbing indoor": [],
+    "apply eye makeup": []
+  },
+  "binary": {
+    "normal":   ["walking", "diving", "archery", "apply eye makeup"],
+    "abnormal": ["punch", "arson", "robbery", "shooting", "vandalism"]
+  }
+}
