@@ -7,4 +7,6 @@ Replication of this paper, "A New Approach for Abnormal Human Activities Recogni
 
 * AirtLab Dataset [2] [link](https://github.com/airtlab/A-Dataset-for-Automatic-Violence-Detection-in-Videos)
 
-* UCF101 Dataset [2] [link](https://www.crcv.ucf.edu/data/UCF101.php#Results_on_UCF101)
+* UCF101 Dataset [3] [link](https://www.crcv.ucf.edu/data/UCF101.php#Results_on_UCF101)
+
+* Anomalous Action Detection Dataset [4] [link](https://www.kaggle.com/datasets/sayantanroy10121999/anomalous-action-detection-dataset)
