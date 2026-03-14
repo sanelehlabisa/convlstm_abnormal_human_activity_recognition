@@ -217,3 +217,8 @@ dataset*/
 # Model checkpoints
 models/
 checkpoints/
+
+# Experiments
+experiments/*/*.png
+experiments/*/*/*.mp4
+experiments/*/*/*.avi

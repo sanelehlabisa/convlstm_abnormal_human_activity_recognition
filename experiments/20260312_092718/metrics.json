@@ -1,0 +1,32 @@
+{
+  "timestamp": "20260312_092718",
+  "checkpoint": {
+    "epoch": 63,
+    "saved_loss": 0.109114
+  },
+  "args": {
+    "dataset_dir": "dataset_clean",
+    "model_dir": "models",
+    "experiments_dir": "experiments",
+    "batch_size": 32,
+    "sequence_length": 32,
+    "width": 64,
+    "height": 64,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "num_workers": 2,
+    "pin_memory": true,
+    "num_samples": 8
+  },
+  "metrics": {
+    "loss": 0.474335,
+    "accuracy": 0.9375,
+    "precision": 0.96875,
+    "recall": 0.96875,
+    "f1": 0.964286
+  },
+  "artifacts": {
+    "confusion_matrix": "experiments/20260312_092718/confusion_matrix.png",
+    "sample_predictions": "experiments/20260312_092718/sample_predictions.png"
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "timestamp": "20260312_095403",
+  "checkpoint": {
+    "epoch": 63,
+    "saved_loss": 0.109114
+  },
+  "args": {
+    "dataset_dir": "dataset_clean",
+    "model_dir": "models",
+    "experiments_dir": "experiments",
+    "batch_size": 32,
+    "sequence_length": 32,
+    "width": 64,
+    "height": 64,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "num_workers": 2,
+    "pin_memory": true,
+    "num_samples": 8
+  },
+  "metrics": {
+    "loss": 0.014724,
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "artifacts": {
+    "confusion_matrix": "experiments/20260312_095403/confusion_matrix.png",
+    "sample_predictions": "experiments/20260312_095403/sample_predictions.png",
+    "prediction_clips": [
+      {
+        "path": "experiments/20260312_095403/correct/GP012506_97_true-Begging_pred-Begging.mp4",
+        "true_label": "Begging",
+        "pred_label": "Begging",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_095403/correct/GOPR2501_83_true-Robbery_pred-Robbery.mp4",
+        "true_label": "Robbery",
+        "pred_label": "Robbery",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_095403/correct/GOPR2517_83_true-Drunkness_pred-Drunkness.mp4",
+        "true_label": "Drunkness",
+        "pred_label": "Drunkness",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_095403/correct/GOPR2509_48_true-Fight_pred-Fight.mp4",
+        "true_label": "Fight",
+        "pred_label": "Fight",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_095403/correct/GOPR2480_80_true-Harassment_pred-Harassment.mp4",
+        "true_label": "Harassment",
+        "pred_label": "Harassment",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_095403/correct/GOPR2480_75_true-Harassment_pred-Harassment.mp4",
+        "true_label": "Harassment",
+        "pred_label": "Harassment",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_095403/correct/GOPR2509_6_true-Fight_pred-Fight.mp4",
+        "true_label": "Fight",
+        "pred_label": "Fight",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_095403/correct/GOPR2529_9_true-Property Damage_pred-Property Damage.mp4",
+        "true_label": "Property Damage",
+        "pred_label": "Property Damage",
+        "correct": true
+      }
+    ]
+  }
+}

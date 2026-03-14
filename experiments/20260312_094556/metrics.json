@@ -1,0 +1,82 @@
+{
+  "timestamp": "20260312_094556",
+  "checkpoint": {
+    "epoch": 63,
+    "saved_loss": 0.109114
+  },
+  "args": {
+    "dataset_dir": "dataset_clean",
+    "model_dir": "models",
+    "experiments_dir": "experiments",
+    "batch_size": 32,
+    "sequence_length": 32,
+    "width": 64,
+    "height": 64,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "num_workers": 2,
+    "pin_memory": true,
+    "num_samples": 8
+  },
+  "metrics": {
+    "loss": 0.474335,
+    "accuracy": 0.9375,
+    "precision": 0.96875,
+    "recall": 0.96875,
+    "f1": 0.964286
+  },
+  "artifacts": {
+    "confusion_matrix": "experiments/20260312_094556/confusion_matrix.png",
+    "sample_predictions": "experiments/20260312_094556/sample_predictions.png",
+    "prediction_clips": [
+      {
+        "path": "experiments/20260312_094556/correct/GOPR2517_88_true-Drunkness_pred-Drunkness.mp4",
+        "true_label": "Drunkness",
+        "pred_label": "Drunkness",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_094556/wrong/GP012527_5_true-Harassment_pred-Hijack.mp4",
+        "true_label": "Harassment",
+        "pred_label": "Hijack",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260312_094556/correct/GOPR2513_99_true-Knife Hazard_pred-Knife Hazard.mp4",
+        "true_label": "Knife Hazard",
+        "pred_label": "Knife Hazard",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_094556/correct/GOPR2517_87_true-Drunkness_pred-Drunkness.mp4",
+        "true_label": "Drunkness",
+        "pred_label": "Drunkness",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_094556/correct/GOPR2501_8_true-Robbery_pred-Robbery.mp4",
+        "true_label": "Robbery",
+        "pred_label": "Robbery",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_094556/correct/GP012527_46_true-Hijack_pred-Hijack.mp4",
+        "true_label": "Hijack",
+        "pred_label": "Hijack",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_094556/correct/GOPR2466_95_true-Pollution_pred-Pollution.mp4",
+        "true_label": "Pollution",
+        "pred_label": "Pollution",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260312_094556/correct/GP012527_8_true-Hijack_pred-Hijack.mp4",
+        "true_label": "Hijack",
+        "pred_label": "Hijack",
+        "correct": true
+      }
+    ]
+  }
+}
