@@ -10,3 +10,9 @@
     "abnormal": ["punch", "arson", "robbery", "shooting", "vandalism"]
   }
 }
+
+Abnormal Activities Dataset: Begging, Drunkenness, Fight, Harassment, Hijack, Knife Hazard, Normal Videos, Pollution, Property Damage, Robbery, and Terrorism
+
+Ano-AAD Dataset: Arrest, Burglary, Explosion, Fighting, Fire Raising, Ill Treatment, Traffic Irregularities, Attack, Violence
+
+UCF Crime Dataset: Abuse, Arrest, Arson, Assault, Burglary, Explosion, Fighting, Normal Videos, RoadAccidents, Robbery, Shooting, Shoplifting, Stealing, Vandalism
