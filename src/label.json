@@ -1,66 +1,104 @@
 {
-  "muticlass": {
-    "normal": [],
-    "begging": [],
-    "drunkenness": [],
-    "fight": [],
-    "harassment": [],
-    "hijack": [],
-    "knife hazard": [],
-    "pollution": [],
+  "multiclass": {
+    "begging":         [],
+    "drunkenness":     [],
+    "fight":           [],
+    "harassment":      [],
+    "hijack":          [],
+    "knife hazard":    [],
+    "normal":          [],
+    "pollution":       [],
     "property damage": [],
-    "robbery": [],
-    "terrorism": []
+    "robbery":         [],
+    "terrorism":       []
   },
+
   "binary": {
-    "nornal": [
-      "normal", "normal video"
+    "normal": [
+      "non-violent",
+      "non_violent",
+      "normal",
+      "normal video",
+      "normal videos"
     ],
     "abnormal": [
-      "anomaly", "violence", "begging", "drunkenness", "fight", "harassment", "hijack", "knife hazard", "pollution", "property damage", "robbery", "terrorism"
+      "anomaly",
+      "begging",
+      "drunkenness",
+      "fight",
+      "harassment",
+      "hijack",
+      "knife hazard",
+      "pollution",
+      "property damage",
+      "robbery",
+      "terrorism",
+      "violent",
+      "violence"
     ]
   },
+
   "toDoMulticlass": {
-    "abuse": [],
-    "arrest": [],
-    "arson": [],
-    "assault": [],
-    "attack": [],
-    "burglary": [],
-    "explosion": [],
-    "fire raising": [],
-    "ill treatment": [],
-    "normal": [],
-    "begging": [],
-    "drunkenness": [],
-    "fight": ["fighting"],
-    "harassment": [],
-    "hijack": [],
-    "knife hazard": [],
-    "pollution": [],
-    "property damage": [],
-    "robbery": [],
-    "shooting": [],
-    "shoplifting": [],
-    "stealing": [],
-    "road accidents": [],
-    "terrorism": [],
-    "traffic irregularities": [],
-    "vandalism": [],
-    "violence": []
+    "abuse":                   ["ill treatment"],
+    "arrest":                  [],
+    "arson":                   ["fire raising"],
+    "assault":                 ["attack"],
+    "begging":                 [],
+    "burglary":                [],
+    "drunkenness":             [],
+    "explosion":               [],
+    "fight":                   ["fighting", "violence", "violent"],
+    "harassment":              [],
+    "hijack":                  [],
+    "knife hazard":            [],
+    "normal":                  ["non-violent", "non_violent", "normal video", "normal videos"],
+    "pollution":               [],
+    "property damage":         ["vandalism"],
+    "road accident":           ["roadaccidents", "traffic irregularities"],
+    "robbery":                 [],
+    "shooting":                [],
+    "shoplifting":             ["stealing"],
+    "terrorism":               []
   },
+
   "toDoBinary": {
-    "nornal": [
-      "normal video"
+    "normal": [
+      "non-violent",
+      "non_violent",
+      "normal",
+      "normal video",
+      "normal videos"
     ],
     "abnormal": [
-      "begging", "drunkenness", "fight", "harassment", "hijack", "knife hazard", "pollution", "property damage", "robbery", "terrorism"
+      "abuse",
+      "arrest",
+      "arson",
+      "assault",
+      "attack",
+      "begging",
+      "burglary",
+      "drunkenness",
+      "explosion",
+      "fight",
+      "fighting",
+      "fire raising",
+      "harassment",
+      "hijack",
+      "ill treatment",
+      "knife hazard",
+      "pollution",
+      "property damage",
+      "road accident",
+      "roadaccidents",
+      "robbery",
+      "shooting",
+      "shoplifting",
+      "stealing",
+      "terrorism",
+      "traffic irregularities",
+      "vandalism",
+      "violence",
+      "violent"
     ]
   }
 }
-
-Abnormal Activities Dataset: Begging, Drunkenness, Fight, Harassment, Hijack, Knife Hazard, Normal Videos, Pollution, Property Damage, Robbery, and Terrorism
-
-Ano-AAD Dataset: Arrest, Burglary, Explosion, Fighting, Fire Raising, Ill Treatment, Traffic Irregularities, Attack, Violence
-
-UCF Crime Dataset: Abuse, Arrest, Arson, Assault, Burglary, Explosion, Fighting, Normal Videos, RoadAccidents, Robbery, Shooting, Shoplifting, Stealing, Vandalism
