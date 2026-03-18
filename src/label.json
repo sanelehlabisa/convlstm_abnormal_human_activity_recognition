@@ -1,13 +1,61 @@
 {
-  "multiclass": {
-    "punch":            ["fighting", "violent", "violence", "assault"],
-    "walking":          ["normal", "non-violent", "non_violent", "walk"],
-    "rock climbing indoor": [],
-    "apply eye makeup": []
+  "muticlass": {
+    "normal": [],
+    "begging": [],
+    "drunkenness": [],
+    "fight": [],
+    "harassment": [],
+    "hijack": [],
+    "knife hazard": [],
+    "pollution": [],
+    "property damage": [],
+    "robbery": [],
+    "terrorism": []
   },
   "binary": {
-    "normal":   ["walking", "diving", "archery", "apply eye makeup"],
-    "abnormal": ["punch", "arson", "robbery", "shooting", "vandalism"]
+    "nornal": [
+      "normal", "normal video"
+    ],
+    "abnormal": [
+      "anomaly", "violence", "begging", "drunkenness", "fight", "harassment", "hijack", "knife hazard", "pollution", "property damage", "robbery", "terrorism"
+    ]
+  },
+  "toDoMulticlass": {
+    "abuse": [],
+    "arrest": [],
+    "arson": [],
+    "assault": [],
+    "attack": [],
+    "burglary": [],
+    "explosion": [],
+    "fire raising": [],
+    "ill treatment": [],
+    "normal": [],
+    "begging": [],
+    "drunkenness": [],
+    "fight": ["fighting"],
+    "harassment": [],
+    "hijack": [],
+    "knife hazard": [],
+    "pollution": [],
+    "property damage": [],
+    "robbery": [],
+    "shooting": [],
+    "shoplifting": [],
+    "stealing": [],
+    "road accidents": [],
+    "terrorism": [],
+    "traffic irregularities": [],
+    "vandalism": [],
+    "violence": []
+  },
+  "toDoBinary": {
+    "nornal": [
+      "normal video"
+    ],
+    "abnormal": [
+      "begging", "drunkenness", "fight", "harassment", "hijack", "knife hazard", "pollution", "property damage", "robbery", "terrorism"
+    ]
   }
 }
 
