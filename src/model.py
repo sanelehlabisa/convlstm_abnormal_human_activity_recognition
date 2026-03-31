@@ -5,19 +5,26 @@ ConvLSTM model for video classification in the Abnormal Human Activity Recogniti
 CNN extracts spatial features per frame, LSTM models temporal dynamics.
 
 Author: Sanele Hlabisa
+
+python -m src.model \
+    --dataset_dir "datasets/abnormal_activities" \
+    --model_dir "models"
 """
 
 from __future__ import annotations
 
-import os
+import random
+import argparse
+from pathlib import Path
+
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import random
+import torchvision
 
 from .dataset import AHARDataset
-from .utils import display_video_grid
 
 
 # ============================================================
@@ -101,59 +108,82 @@ def main() -> None:
     """
     Sanity check:
     - Load dataset
+    - Build model (optionally load checkpoint)
     - Run single forward pass
-    - Visualize frames with prediction
+    - Save predicted clip to outputs/model_samples/
     """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"🖥 Using device: {device}")
 
-    print("📂 Loading dataset...")
+    parser = argparse.ArgumentParser(description="Model sanity check — forward pass + clip save")
+    parser.add_argument("--dataset_dir",     type=str, default="datasets/abnormal_activities")
+    parser.add_argument("--model_dir",       type=str, default=None,
+                        help="Optional: path to models/ dir to load best_model.pth")
+    parser.add_argument("--sequence_length", type=int, default=32)
+    parser.add_argument("--height",          type=int, default=64)
+    parser.add_argument("--width",           type=int, default=64)
+    parser.add_argument("--fps",             type=int, default=8)
+    args = parser.parse_args()
+
+    out_dir = Path("outputs") / "model_samples"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🖥  Using device: {device}")
+
+    # ---- Dataset ----
     dataset = AHARDataset(
-        dataset_dir="dataset",
-        sequence_length=32,
-        frame_size=(64, 64),
+        dataset_dir=args.dataset_dir,
+        sequence_length=args.sequence_length,
+        frame_size=(args.height, args.width),
     )
 
-    # Random sample
     idx = random.randint(0, len(dataset) - 1)
-    frames, true_label = dataset[idx]          # (T, C, H, W)
-    frames = frames.to(device)
+    frames, true_label = dataset[idx]          # (T, C, H, W) float [0,1]
 
-    # Model
+    # ---- Model ----
     model = ConvLSTMModel(
         num_classes=dataset.num_classes,
-        input_shape=frames.shape[1:],  # (C, H, W)
+        input_shape=(3, args.height, args.width),
     ).to(device)
-    
-    model_dir = "models"
-    model_filename = "checkpoint.pth"
-    
-    if model_filename in os.listdir(path=model_dir):
-        print("[INFO] Loading saved model")
-        model.load_state_dict(
-            state_dict=torch.load(f=f"{model_dir}/{model_filename}", weights_only=True, map_location=device)["model_state_dict"]
-        )
 
+    # Optionally load checkpoint if model_dir provided
+    if args.model_dir is not None:
+        from .utils import load_model
+        model, _, epoch, loss = load_model(model, base_path=args.model_dir, map_location=device)
+        print(f"📂 Checkpoint loaded → epoch={epoch}, loss={loss:.4f}")
+    else:
+        print("⚠️  No model_dir provided — running with random weights (shape check only)")
+
+    # ---- Forward pass ----
     model.eval()
     with torch.no_grad():
-        logits = model(frames.unsqueeze(0))    # (1, T, C, H, W)
-        probs = torch.softmax(logits, dim=1)
-        pred_label = probs.argmax(dim=1).item()
+        logits = model(frames.unsqueeze(0).to(device))   # (1, num_classes)
+        probs = torch.softmax(logits, dim=1)[0]
+        pred_label = probs.argmax().item()
+        pred_conf  = probs[pred_label].item()
 
-    print(f"✅ Input shape: {frames.shape}")
-    print(f"✅ Logits shape: {logits.shape}")
-    print(f"🔹 True class: {dataset.class_names[true_label]}")
-    print(f"🔹 Predicted class: {dataset.class_names[pred_label]}")
-    print(f"🔹 Probabilities: {np.round(probs[0].cpu().numpy(), 2)}")
+    true_name = dataset.class_names[true_label]
+    pred_name = dataset.class_names[pred_label]
 
-    # Visualization
-    display_video_grid(
-        video=frames.cpu(),
-        class_names=dataset.class_names,
-        true_label=true_label,
-        pred_label=pred_label,
-        save_path="sample_prediction.png",
-    )
+    print(f"\n✅ Input shape  : {frames.shape}")
+    print(f"✅ Logits shape : {logits.shape}")
+    print(f"🔹 True class   : {true_name}")
+    print(f"🔹 Pred class   : {pred_name}  ({pred_conf:.1%})")
+    print(f"🔹 Probs        : {np.round(probs.cpu().numpy(), 2)}")
+
+    # ---- Save clip ----
+    try:
+        stem = Path(dataset.samples[idx][0]).stem
+    except Exception:
+        stem = f"sample_{idx:04d}"
+
+    correct = "correct" if pred_label == true_label else "wrong"
+    fname   = f"{stem}_true-{true_name}_pred-{pred_name}_{correct}.mp4"
+    out_path = out_dir / fname
+
+    clip_uint8 = (frames * 255).byte().permute(0, 2, 3, 1).cpu()
+    torchvision.io.write_video(str(out_path), clip_uint8, fps=args.fps)
+
+    print(f"\n🎬 Saved clip → {out_path}")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,18 @@ Saves a timestamped experiment folder containing:
   - sample_predictions.png  (8 random test samples)
 
 Author: Sanele Hlabisa
+
+python -m src.evaluate \
+    --dataset_dir "datasets/abnormal_activities" \
+    --model_dir "models" \
+    --experiments_dir "experiments" \
+    --batch_size 32 \
+    --sequence_length 32 \
+    --height 64 \
+    --width 64 \
+    --num_workers 2 \
+    --pin_memory \
+    --num_samples 8
 """
 
 from __future__ import annotations
@@ -16,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -23,10 +36,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 import torchmetrics
+import matplotlib.pyplot as plt
+import numpy as np
 
 from .dataset import AHARDataset
 from .model import ConvLSTMModel
-from .utils import display_video_grid, load_model, plot_confusion_matrix, save_prediction_clips
+from .utils import load_model, plot_confusion_matrix, save_prediction_clips
 
 # ============================================================
 # Argument parser
@@ -62,6 +77,7 @@ def evaluate(
     criterion: nn.Module,
     metrics: dict[str, torchmetrics.Metric],
     device: torch.device,
+    pred_transform=None,
 ) -> dict[str, float]:
     """
     Run one full evaluation pass and return all metric results.
@@ -72,6 +88,7 @@ def evaluate(
         criterion: Loss function.
         metrics:   Dict of {display_name: torchmetrics.Metric}.
         device:    CPU or CUDA device.
+        pred_transform: Optional function to transform predictions (e.g., for binary classification).
 
     Returns:
         Dict of {metric_name: value}.
@@ -91,6 +108,12 @@ def evaluate(
         total_loss += criterion(logits, y).item()
 
         preds = logits.argmax(dim=1)
+
+        # Post-process to binary if dataset is detection mode
+        if pred_transform is not None:
+            preds = torch.tensor(pred_transform(preds.cpu().tolist()), device=device)
+            y = torch.tensor(pred_transform(y.cpu().tolist()),     device=device)
+
         for m in metrics.values():
             m(preds, y)
 
@@ -135,9 +158,6 @@ def _plot_sample_predictions(
     save_path: str,
 ) -> None:
     """Pick random samples, run inference, save a grid of frame-strip predictions."""
-    import math
-    import matplotlib.pyplot as plt
-    import numpy as np
 
     model.eval()
     indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
@@ -184,6 +204,15 @@ def _plot_sample_predictions(
 # ============================================================
 
 def main() -> None:
+    """
+    Main function.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -195,16 +224,52 @@ def main() -> None:
     exp_dir.mkdir(parents=True, exist_ok=True)
     print(f"📁 Experiment dir → {exp_dir}")
 
-    # ---------------- Dataset ----------------
+        # ---------------- Dataset ----------------
     dataset = AHARDataset(
         dataset_dir=args.dataset_dir,
         sequence_length=args.sequence_length,
         frame_size=(args.width, args.height),
     )
 
-    num_classes = dataset.num_classes
+    num_classes = dataset.num_classes                    # ← moved up, before mode branch
     print(f"📦 Dataset: {len(dataset)} samples | {num_classes} classes")
     print(f"🏷  Classes: {dataset.class_names}")
+
+    # ---------------- Dataset mode → controls metrics and confusion matrix ----------------
+    if dataset.mode == "binary":
+        print("🔀 Binary evaluation mode (normal / abnormal)")
+
+        def to_binary(indices: list[int]) -> list[int]:
+            result = []
+            for idx in indices:
+                canonical = dataset.class_names[idx]
+                verdict   = dataset.registry.binary_verdict(canonical)
+                result.append(0 if verdict == "normal" else 1)
+            return result
+
+        eval_class_names = ["normal", "abnormal"]
+        eval_num_classes = 2
+    else:
+        print("🔢 Multiclass evaluation mode")
+        to_binary        = None
+        eval_class_names = dataset.class_names
+        eval_num_classes = num_classes
+
+    # ---------------- Model ----------------
+    model = ConvLSTMModel(
+        num_classes=num_classes,
+        input_shape=(3, args.height, args.width),
+    ).to(device)
+
+    model, _, epoch, ckpt_loss = load_model(
+        model,
+        base_path=args.model_dir,
+        map_location=device,
+    )
+
+    print(f"📂 Checkpoint → epoch={epoch}, saved_loss={ckpt_loss:.4f}")
+
+
 
     # ---------------- Reproduce same split as train.py ----------------
     n_total = len(dataset)
@@ -228,32 +293,45 @@ def main() -> None:
         pin_memory=args.pin_memory,
     )
 
-    # ---------------- Model ----------------
-    model = ConvLSTMModel(
-        num_classes=num_classes,
-        input_shape=(3, args.height, args.width),
-    ).to(device)
+    # ---------------- Dataset mode → controls post-processing ----------------
+    if dataset.mode == "detection":
+        print("🔍 Detection mode — multiclass predictions collapsed to normal/abnormal")
 
-    model, _, epoch, ckpt_loss = load_model(
-        model,
-        base_path=args.model_dir,
-        map_location=device,
-    )
+        def to_detection(indices: list[int]) -> list[int]:
+            """Collapse multiclass index → 0 (normal) or 1 (abnormal)."""
+            result = []
+            for idx in indices:
+                canonical = dataset.class_names[idx]
+                verdict   = dataset.registry.detection_verdict(canonical)
+                # default to abnormal if unmapped — safe fallback
+                result.append(0 if verdict == "normal" else 1)
+            return result
 
-    print(f"📂 Checkpoint → epoch={epoch}, saved_loss={ckpt_loss:.4f}")
+        post_process     = to_detection
+        eval_class_names = ["normal", "abnormal"]
+        eval_num_classes = 2
+
+    else:
+        print("🔢 Multiclass mode")
+        post_process     = None
+        eval_class_names = dataset.class_names
+        eval_num_classes = dataset.num_classes
 
     # ---------------- Metrics ----------------
     criterion = nn.CrossEntropyLoss()
 
     metrics = {
-        "accuracy":  torchmetrics.Accuracy( task="multiclass", num_classes=num_classes).to(device),
-        "precision": torchmetrics.Precision(task="multiclass", num_classes=num_classes, average="macro").to(device),
-        "recall":    torchmetrics.Recall(   task="multiclass", num_classes=num_classes, average="macro").to(device),
-        "f1":        torchmetrics.F1Score(  task="multiclass", num_classes=num_classes, average="macro").to(device),
+        "accuracy":  torchmetrics.Accuracy( task="multiclass", num_classes=eval_num_classes).to(device),
+        "precision": torchmetrics.Precision(task="multiclass", num_classes=eval_num_classes, average="macro").to(device),
+        "recall":    torchmetrics.Recall(   task="multiclass", num_classes=eval_num_classes, average="macro").to(device),
+        "f1":        torchmetrics.F1Score(  task="multiclass", num_classes=eval_num_classes, average="macro").to(device),
     }
 
     # ---------------- Evaluate ----------------
-    results = evaluate(model, test_loader, criterion, metrics, device)
+    results = evaluate(
+        model, test_loader, criterion, metrics, device,
+        pred_transform=post_process,
+    )
 
     print("\n🏁 Evaluation Results")
     print("─" * 32)
@@ -264,22 +342,27 @@ def main() -> None:
     all_true, all_pred = _collect_preds(model, test_loader, device)
 
     cm_path = str(exp_dir / "confusion_matrix.png")
+    if post_process is not None:
+        cm_true = post_process(all_true)
+        cm_pred = post_process(all_pred)
+    else:
+        cm_true, cm_pred = all_true, all_pred
+
     plot_confusion_matrix(
-        y_true=all_true,
-        y_pred=all_pred,
-        class_names=dataset.class_names,
+        y_true=cm_true,
+        y_pred=cm_pred,
+        class_names=eval_class_names,
         save_path=cm_path,
     )
 
     # ---------------- Sample predictions ----------------
-    samples_path = str(exp_dir / "sample_predictions.png")
     _plot_sample_predictions(
         model=model,
         dataset=test_set,
-        class_names=dataset.class_names,
+        class_names=eval_class_names,
         device=device,
         num_samples=args.num_samples,
-        save_path=samples_path,
+        save_path=str(exp_dir / "sample_predictions.png"),
     )
 
     # ---------------- Save prediction clips ----------------
@@ -305,7 +388,6 @@ def main() -> None:
         "metrics": {k: round(v, 6) for k, v in results.items()},
         "artifacts": {
             "confusion_matrix":   cm_path,
-            "sample_predictions": samples_path,
             "prediction_clips":   clip_records
         },
     }
@@ -319,17 +401,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-"""
-python -m src.evaluate \
-    --dataset_dir "dataset_clean" \
-    --model_dir "models" \
-    --experiments_dir "experiments" \
-    --batch_size 32 \
-    --sequence_length 32 \
-    --height 64 \
-    --width 64 \
-    --num_workers 2 \
-    --pin_memory \
-    --num_samples 8 \
-"""

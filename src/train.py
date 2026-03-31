@@ -5,27 +5,37 @@ Training script for ConvLSTM-based Abnormal Human Activity Recognition (AHAR).
 Handles dataset splitting, training, validation, checkpointing, and visualization.
 
 Author: Sanele Hlabisa
+
+python -m src.train \
+    --dataset_dir "datasets/abnormal_activities" \
+    --model_dir "models" \
+    --batch_size 32 \
+    --epochs 64 \
+    --sequence_length 32 \
+    --height 64 \
+    --width 64 \
+    --num_workers 2 \
+    --pin_memory
 """
 
 from __future__ import annotations
 
 import argparse
-import random
 from timeit import default_timer as timer
-
+from pathlib import Path 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 import torchmetrics
-
 from .dataset import AHARDataset
 from .model import ConvLSTMModel
+
 from .utils import (
     save_model,
     plot_training_curves,
-    display_video_grid,
+    save_prediction_clips,
 )
 
 # ============================================================
@@ -230,8 +240,11 @@ def main() -> None:
     print(f"\n⏱ Training finished in {total_time:.2f}s")
 
     # ---------------- Curves ----------------
+    curves_path = Path(args.model_dir) / "training_curves.png"
     plot_training_curves(
-        train_losses, val_losses, train_accs, val_accs
+        train_losses, val_losses, train_accs, val_accs,
+        show=False,
+        save_path=str(curves_path),
     )
 
     # ---------------- Test ----------------
@@ -240,22 +253,18 @@ def main() -> None:
     )
     print(f"\n🏁 Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
 
-    # ---------------- Visualization ----------------
-    idx = random.randint(0, len(test_set) - 1)
-    frames, true_label = test_set[idx]
-    frames = frames.to(device)
+    # ---------------- Save one prediction clip ----------------
+    out_dir = Path("outputs") / "train_samples"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    model.eval()
-    with torch.no_grad():
-        logits = model(frames.unsqueeze(0))
-        pred_label = logits.argmax(dim=1).item()
-
-    display_video_grid(
-        video=frames.cpu(),
+    save_prediction_clips(
+        model=model,
+        dataset=test_set,
         class_names=dataset.class_names,
-        true_label=true_label,
-        pred_label=pred_label,
-        save_path="test_pred.png",
+        device=device,
+        exp_dir=out_dir,
+        num_samples=1,
+        fps=8,
     )
 
 

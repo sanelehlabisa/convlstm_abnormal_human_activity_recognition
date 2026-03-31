@@ -1,9 +1,9 @@
 """
 labels.py
 
-Label registry loader and resolver for multi-dataset support.
-Reads labels.json and provides class name resolution, binary mapping,
-and dataset mode detection.
+Label registry for multi-dataset support.
+Drives class resolution, index assignment, and detection post-processing.
+All class definitions live in labels.json — no hardcoding elsewhere.
 
 Author: Sanele Hlabisa
 """
@@ -14,99 +14,114 @@ import json
 from pathlib import Path
 from typing import Optional
 
-
 LABELS_PATH = Path(__file__).parent.parent / "labels.json"
 
 
 class LabelRegistry:
     """
-    Loads labels.json and provides lookup utilities.
-
-    labels.json structure:
-        multiclass: { "class name": [] }   ← canonical names, lowercase with spaces
-        binary:     { "normal": [...], "abnormal": [...] }
+    Loads labels.json and provides:
+      - Stable class index assignment (always from multiclass keys)
+      - Folder name resolution via aliases
+      - Detection mode: maps canonical class → normal/abnormal
+      - Dataset mode detection: multiclass vs detection
     """
 
     def __init__(self, labels_path: Path = LABELS_PATH) -> None:
         with open(labels_path) as f:
             data = json.load(f)
 
-        self.multiclass: dict[str, list[str]] = data["multiclass"]
-        self.binary: dict[str, list[str]]     = data["binary"]
+        # ---- Canonical classes (model always uses these) ----
+        # Keys are the canonical names, values are alias lists
+        self._multiclass: dict[str, list[str]] = data["multiclass"]
 
-        # Sorted canonical class list — must match training order
-        self.class_names: list[str] = sorted(self.multiclass.keys())
+        # Sorted so indices are stable across runs
+        self.class_names: list[str] = sorted(self._multiclass.keys())
         self.class_to_idx: dict[str, int] = {
             c: i for i, c in enumerate(self.class_names)
         }
         self.num_classes: int = len(self.class_names)
 
-        # Reverse lookup: any alias/name → canonical name
+        # ---- Alias → canonical (folder names resolve through here) ----
+        # Built from multiclass values (alias lists)
         self._alias_to_canonical: dict[str, str] = {}
-        for canonical in self.class_names:
-            self._alias_to_canonical[canonical] = canonical
+        for canonical, aliases in self._multiclass.items():
+            self._alias_to_canonical[canonical.lower().strip()] = canonical
+            for alias in aliases:
+                self._alias_to_canonical[alias.lower().strip()] = canonical
 
-        # Build binary reverse lookup: canonical name → "normal" | "abnormal"
-        self._canonical_to_binary: dict[str, str] = {}
-        for verdict, names in self.binary.items():
-            for name in names:
-                self._canonical_to_binary[name.lower().strip()] = verdict
+        # ---- Detection mapping: canonical class → "normal" | "abnormal" ----
+        # detection section lists canonical class names under each verdict
+        self._detection: dict[str, list[str]] = data.get("detection", {})
+        self._class_to_verdict: dict[str, str] = {}
+        for verdict, class_list in self._detection.items():
+            for cls in class_list:
+                self._class_to_verdict[cls.lower().strip()] = verdict
+
+    # ------------------------------------------------------------------
+    # Folder name resolution
+    # ------------------------------------------------------------------
 
     def resolve(self, folder_name: str) -> Optional[str]:
         """
         Resolve a dataset folder name to a canonical class name.
-        Returns None if not found — caller should warn.
+        Returns None if unresolvable — caller should warn.
         """
-        key = folder_name.lower().strip()
-        return self._alias_to_canonical.get(key)
+        return self._alias_to_canonical.get(folder_name.lower().strip())
 
-    def to_idx(self, folder_name: str) -> Optional[int]:
-        """Resolve folder name to integer class index."""
-        canonical = self.resolve(folder_name)
-        if canonical is None:
-            return None
-        return self.class_to_idx[canonical]
+    # ------------------------------------------------------------------
+    # Detection post-processing
+    # ------------------------------------------------------------------
 
-    def binary_verdict(self, canonical_name: str) -> Optional[str]:
-        """Return 'normal' or 'abnormal' for a canonical class name."""
-        return self._canonical_to_binary.get(canonical_name.lower().strip())
-
-    def is_binary_dataset(self, folder_names: list[str]) -> bool:
+    def detection_verdict(self, canonical_name: str) -> Optional[str]:
         """
-        Detect if a dataset should be evaluated in binary mode.
-        True when the dataset has exactly 2 folders that both resolve
-        to binary verdicts (e.g. 'violent' and 'non-violent').
+        Return 'normal' or 'abnormal' for a canonical class name.
+        Used to convert multiclass predictions to detection output.
+        """
+        return self._class_to_verdict.get(canonical_name.lower().strip())
+
+    # ------------------------------------------------------------------
+    # Dataset mode detection
+    # ------------------------------------------------------------------
+
+    def detect_mode(self, folder_names: list[str]) -> str:
+        """
+        Return 'detection' if the dataset has exactly 2 folders that
+        both resolve to detection verdicts (normal / abnormal aliases).
+        Otherwise return 'multiclass'.
         """
         if len(folder_names) != 2:
-            return False
+            return "multiclass"
+
         verdicts = set()
-        for name in folder_names:
-            canonical = self.resolve(name)
-            if canonical:
-                verdict = self.binary_verdict(canonical)
+        for fname in folder_names:
+            canonical = self.resolve(fname)
+            if canonical is not None:
+                verdict = self.detection_verdict(canonical)
                 if verdict:
                     verdicts.add(verdict)
-        return verdicts == {"normal", "abnormal"}
+
+        if verdicts == {"normal", "abnormal"}:
+            return "detection"
+        return "multiclass"
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
 
     def validate_folders(self, folder_names: list[str]) -> None:
         """
-        Warn for any folder name that cannot be resolved.
-        Raises ValueError if zero folders resolve successfully.
+        Warn for unresolvable folders.
+        Raises ValueError if none resolve — likely a labels.json mismatch.
         """
-        unresolved = []
-        resolved = []
-        for name in folder_names:
-            if self.resolve(name) is None:
-                unresolved.append(name)
-            else:
-                resolved.append(name)
+        unresolved = [f for f in folder_names if self.resolve(f) is None]
+        resolved   = [f for f in folder_names if self.resolve(f) is not None]
 
         if unresolved:
-            print(f"⚠️  Unresolved class folders (not in labels.json): {unresolved}")
-            print(f"    Add them to labels.json multiclass and binary sections.")
+            print(f"⚠️  Unresolved folders (not in labels.json multiclass aliases): {unresolved}")
+            print(f"    Add aliases to labels.json multiclass section.")
 
         if not resolved:
             raise ValueError(
-                "No dataset folders could be resolved against labels.json. "
-                "Check that your dataset folder names match canonical names or aliases."
+                "No dataset folders resolved against labels.json. "
+                "Check folder names match canonical names or aliases in multiclass."
             )
