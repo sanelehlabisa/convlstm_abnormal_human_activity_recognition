@@ -1,22 +1,31 @@
 {
   "multiclass": {
-      "begging": [],
-      "drunkenness": [],
-      "fight": [],
-      "harassment": [],
-      "hijack": [],
-      "knife hazard": [],
-      "normal": [],
-      "pollution": [],
-      "property damage": [],
-      "robbery": [],
-      "terrorism": []
-  },
-  "binary": {
+    "begging": [],
+    "drunkenness": [],
+    "fight": [
+      "violence",
+      "violent"
+    ],
+    "harassment": [],
+    "hijack": [],
+    "knife hazard": [],
     "normal": [
+      "normal video",
+      "normal videos"
+    ],
+    "pollution": [],
+    "property damage": [
+      "vandalism"
+    ],
+    "robbery": [],
+    "terrorism": []
+  },
+  "detection": {
+    "normal": [
+      "normal",
+      "non violent",
       "non-violent",
       "non_violent",
-      "normal",
       "normal video",
       "normal videos"
     ],
@@ -25,6 +34,7 @@
       "begging",
       "drunkenness",
       "fight",
+      "fighting",
       "harassment",
       "hijack",
       "knife hazard",
@@ -32,8 +42,8 @@
       "property damage",
       "robbery",
       "terrorism",
-      "violent",
-      "violence"
+      "violence",
+      "violent"
     ]
   }
 }

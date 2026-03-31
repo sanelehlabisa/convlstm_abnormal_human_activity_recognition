@@ -1,0 +1,82 @@
+{
+  "timestamp": "20260325_114341",
+  "checkpoint": {
+    "epoch": 63,
+    "saved_loss": 0.109114
+  },
+  "args": {
+    "dataset_dir": "dataset_clean",
+    "model_dir": "models",
+    "experiments_dir": "experiments",
+    "batch_size": 32,
+    "sequence_length": 32,
+    "width": 64,
+    "height": 64,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "num_workers": 2,
+    "pin_memory": true,
+    "num_samples": 8
+  },
+  "metrics": {
+    "loss": 0.411447,
+    "accuracy": 0.944444,
+    "precision": 0.95,
+    "recall": 0.95,
+    "f1": 0.933333
+  },
+  "artifacts": {
+    "confusion_matrix": "experiments/20260325_114341/confusion_matrix.png",
+    "sample_predictions": "experiments/20260325_114341/sample_predictions.png",
+    "prediction_clips": [
+      {
+        "path": "experiments/20260325_114341/correct/GOPR2501_84_true-robbery_pred-robbery.mp4",
+        "true_label": "robbery",
+        "pred_label": "robbery",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260325_114341/correct/GOPR2449_18_true-normal_pred-normal.mp4",
+        "true_label": "normal",
+        "pred_label": "normal",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260325_114341/correct/GOPR2517_85_true-drunkenness_pred-drunkenness.mp4",
+        "true_label": "drunkenness",
+        "pred_label": "drunkenness",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260325_114341/correct/GP012523_68_true-terrorism_pred-terrorism.mp4",
+        "true_label": "terrorism",
+        "pred_label": "terrorism",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260325_114341/correct/GP012506_94_true-begging_pred-begging.mp4",
+        "true_label": "begging",
+        "pred_label": "begging",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260325_114341/correct/GOPR2509_6_true-fight_pred-fight.mp4",
+        "true_label": "fight",
+        "pred_label": "fight",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260325_114341/correct/GOPR2513_97_true-knife hazard_pred-knife hazard.mp4",
+        "true_label": "knife hazard",
+        "pred_label": "knife hazard",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260325_114341/correct/GOPR2480_8_true-harassment_pred-harassment.mp4",
+        "true_label": "harassment",
+        "pred_label": "harassment",
+        "correct": true
+      }
+    ]
+  }
+}

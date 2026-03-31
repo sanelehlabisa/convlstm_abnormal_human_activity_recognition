@@ -1,0 +1,57 @@
+{
+  "timestamp": "20260331_224139",
+  "checkpoint": {
+    "epoch": 3,
+    "saved_loss": 2.28217
+  },
+  "args": {
+    "dataset_dir": "datasets/violence-detection-dataset",
+    "model_dir": "models",
+    "experiments_dir": "experiments",
+    "batch_size": 32,
+    "sequence_length": 32,
+    "width": 64,
+    "height": 64,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "num_workers": 2,
+    "pin_memory": true,
+    "num_samples": 4
+  },
+  "metrics": {
+    "loss": 2.858488,
+    "accuracy": 0.0,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0
+  },
+  "artifacts": {
+    "confusion_matrix": "experiments/20260331_224139/confusion_matrix.png",
+    "prediction_clips": [
+      {
+        "path": "experiments/20260331_224139/wrong/107_true-fight_pred-property damage.mp4",
+        "true_label": "fight",
+        "pred_label": "property damage",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260331_224139/wrong/114_true-fight_pred-property damage.mp4",
+        "true_label": "fight",
+        "pred_label": "property damage",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260331_224139/wrong/50_true-fight_pred-property damage.mp4",
+        "true_label": "fight",
+        "pred_label": "property damage",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260331_224139/wrong/45_true-fight_pred-property damage.mp4",
+        "true_label": "fight",
+        "pred_label": "property damage",
+        "correct": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "timestamp": "20260331_224608",
+  "checkpoint": {
+    "epoch": 63,
+    "saved_loss": 0.109114
+  },
+  "args": {
+    "dataset_dir": "datasets/violence-detection-dataset",
+    "model_dir": "models",
+    "experiments_dir": "experiments",
+    "batch_size": 32,
+    "sequence_length": 32,
+    "width": 64,
+    "height": 64,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "num_workers": 2,
+    "pin_memory": true,
+    "num_samples": 4
+  },
+  "metrics": {
+    "loss": 5.254168,
+    "accuracy": 0.0,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0
+  },
+  "artifacts": {
+    "confusion_matrix": "experiments/20260331_224608/confusion_matrix.png",
+    "prediction_clips": [
+      {
+        "path": "experiments/20260331_224608/wrong/32_true-fight_pred-robbery.mp4",
+        "true_label": "fight",
+        "pred_label": "robbery",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260331_224608/wrong/5_true-fight_pred-pollution.mp4",
+        "true_label": "fight",
+        "pred_label": "pollution",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260331_224608/wrong/87_true-fight_pred-harassment.mp4",
+        "true_label": "fight",
+        "pred_label": "harassment",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260331_224608/wrong/23_true-fight_pred-robbery.mp4",
+        "true_label": "fight",
+        "pred_label": "robbery",
+        "correct": false
+      }
+    ]
+  }
+}
