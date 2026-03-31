@@ -222,3 +222,10 @@ checkpoints/
 experiments/*/*.png
 experiments/*/*/*.mp4
 experiments/*/*/*.avi
+
+# Datasets
+datasets/
+
+# Output files
+outputs/*/*.mp4
+outputs/*/*/*.mp4
