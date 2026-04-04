@@ -19,9 +19,10 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
-import torchvision
 from torch.utils.data import Dataset
 from torchvision import transforms
+
+from .utils import read_video_cv2, write_video_cv2
 
 
 class AHARDataset(Dataset):
@@ -80,16 +81,20 @@ class AHARDataset(Dataset):
 
     def __getitem__(self, index: int):
         video_path, label = self.samples[index]
-        try:
-            video, _, _ = torchvision.io.read_video(str(video_path), pts_unit="sec")
-        except Exception:
-            return self[(index + 1) % len(self)]
 
-        video = self._sample_frames(video)  # (T, H, W, C)
-        video = video.permute(0, 3, 1, 2).float().div(255.0)  # (T, C, H, W)
+        try:
+            video = read_video_cv2(video_path)
+        except Exception as e:
+            print(f"⚠️ Skipping bad video: {video_path}")
+            return self.__getitem__((index + 1) % len(self))  # safer recursion
+
+        video = self._sample_frames(video)
+        video = video.permute(0, 3, 1, 2).float().div(255.0)
+
         video = F.interpolate(
             video, size=self.frame_size, mode="bilinear", align_corners=False
         )
+
         return video, label
 
 
@@ -118,8 +123,7 @@ def main() -> None:
         video, label = dataset[idx]
         stem = Path(dataset.samples[idx][0]).stem
         fname = f"{stem}_class-{dataset.class_names[label]}.mp4"
-        clip = (video * 255).byte().permute(0, 2, 3, 1).cpu()
-        torchvision.io.write_video(str(out_dir / fname), clip, fps=args.fps)
+        write_video_cv2(video, out_dir / fname, fps=args.fps)
         print(f"  ✅ {fname}")
 
 

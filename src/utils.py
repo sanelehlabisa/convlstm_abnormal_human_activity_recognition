@@ -14,9 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import cv2
 import matplotlib.pyplot as plt
+from sympy import fps
 import torch
-import torchvision
 from mlxtend.evaluate import confusion_matrix as mlxt_cm
 from mlxtend.plotting import plot_confusion_matrix as mlxt_plot_cm
 from sklearn.metrics import confusion_matrix as sk_cm
@@ -159,6 +160,41 @@ def load_model(
     print(f"✅ Loaded checkpoint (epoch={epoch}, loss={loss:.4f})")
     return model, optimizer, epoch, loss
 
+def read_video_cv2(path: Path) -> torch.Tensor:
+    cap = cv2.VideoCapture(str(path))
+    frames = []
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frames.append(torch.from_numpy(frame))
+
+    cap.release()
+
+    if len(frames) == 0:
+        raise RuntimeError(f"Failed to load video: {path}")
+
+    return torch.stack(frames)  # (T, H, W, C)
+
+def write_video_cv2(frames: torch.Tensor, path: Path, fps: int = 8):
+    """
+    frames: (T, C, H, W) in [0,1]
+    """
+    frames = (frames * 255).byte().permute(0, 2, 3, 1).cpu().numpy()  # (T, H, W, C)
+
+    T, H, W, _ = frames.shape
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(str(path), fourcc, fps, (W, H))
+
+    for frame in frames:
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        out.write(frame_bgr)
+
+    out.release()
 
 def save_prediction_clips(
     model: torch.nn.Module,
@@ -195,9 +231,7 @@ def save_prediction_clips(
 
             fname = f"{stem}_true-{true_name}_pred-{pred_name}.mp4"
             out_path = (exp_dir / "correct" if correct else exp_dir / "wrong") / fname
-            clip = (frames * 255).byte().permute(0, 2, 3, 1).cpu()
-            torchvision.io.write_video(str(out_path), clip, fps=fps)
-
+            write_video_cv2(frames, out_path, fps)
             saved.append(
                 {
                     "path": str(out_path),
