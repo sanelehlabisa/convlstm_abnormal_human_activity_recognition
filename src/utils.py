@@ -14,13 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import cv2
 import matplotlib.pyplot as plt
-from sympy import fps
 import torch
 from mlxtend.evaluate import confusion_matrix as mlxt_cm
 from mlxtend.plotting import plot_confusion_matrix as mlxt_plot_cm
 from sklearn.metrics import confusion_matrix as sk_cm
+import torchvision
 
 
 def plot_training_curves(
@@ -160,41 +159,33 @@ def load_model(
     print(f"✅ Loaded checkpoint (epoch={epoch}, loss={loss:.4f})")
     return model, optimizer, epoch, loss
 
-def read_video_cv2(path: Path) -> torch.Tensor:
-    cap = cv2.VideoCapture(str(path))
-    frames = []
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frames.append(torch.from_numpy(frame))
-
-    cap.release()
-
-    if len(frames) == 0:
-        raise RuntimeError(f"Failed to load video: {path}")
-
-    return torch.stack(frames)  # (T, H, W, C)
-
-def write_video_cv2(frames: torch.Tensor, path: Path, fps: int = 8):
+def read_video_torchvision(path: Path) -> tuple[torch.Tensor, float]:
     """
-    frames: (T, C, H, W) in [0,1]
+    Read video using torchvision (PyAV backend — handles more codecs cleanly).
+    Returns: frames (T, H, W, C) uint8, and fps float.
     """
-    frames = (frames * 255).byte().permute(0, 2, 3, 1).cpu().numpy()  # (T, H, W, C)
+    video, _, info = torchvision.io.read_video(
+        str(path), pts_unit="sec", output_format="TCHW"
+    )
+    # read_video returns (T, C, H, W) — permute to (T, H, W, C) to match our pipeline
+    video = video.permute(0, 2, 3, 1)  # (T, C, H, W) → (T, H, W, C)
+    fps = info.get("video_fps", 30.0)
+    return video, fps
 
-    T, H, W, _ = frames.shape
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(str(path), fourcc, fps, (W, H))
+def write_video_torchvision(frames: torch.Tensor, path: Path, fps: int = 8) -> None:
+    """
+    Write video using torchvision.
+    frames: (T, C, H, W) float [0, 1]
+    Produces mp4 that plays in all standard players.
+    """
+    # torchvision.io.write_video expects (T, H, W, C) uint8
+    clip = (frames * 255).byte().permute(0, 2, 3, 1).cpu()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torchvision.io.write_video(str(path), clip, fps=fps, video_codec="libx264")
 
-    for frame in frames:
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        out.write(frame_bgr)
-
-    out.release()
 
 def save_prediction_clips(
     model: torch.nn.Module,
@@ -231,7 +222,7 @@ def save_prediction_clips(
 
             fname = f"{stem}_true-{true_name}_pred-{pred_name}.mp4"
             out_path = (exp_dir / "correct" if correct else exp_dir / "wrong") / fname
-            write_video_cv2(frames, out_path, fps)
+            write_video_torchvision(frames, out_path, fps)
             saved.append(
                 {
                     "path": str(out_path),
