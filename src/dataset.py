@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from .utils import read_video_cv2, write_video_cv2
+from .utils import read_video_torchvision, write_video_torchvision
 
 
 class AHARDataset(Dataset):
@@ -45,6 +45,7 @@ class AHARDataset(Dataset):
         self.sequence_length = sequence_length
         self.frame_size = frame_size
         self.transform = transform
+        self.TARGET_FPS: int = 8
 
         # Class names from subdirectory names, sorted for stable indices
         self.class_names: list[str] = sorted(
@@ -70,30 +71,55 @@ class AHARDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def _sample_frames(self, video: torch.Tensor) -> torch.Tensor:
-        """Uniformly sample sequence_length frames from (T, H, W, C)."""
+    def _sample_frames(self, video: torch.Tensor, source_fps: float) -> torch.Tensor:
+        """
+        Sample exactly sequence_length frames at TARGET_FPS.
+        - Stride is computed from source fps so temporal density is preserved.
+        - Pads with last frame if video is too short.
+        - Clips if video has more frames than needed.
+
+        video shape: (T, H, W, C)
+        """
         T = video.shape[0]
-        if T >= self.sequence_length:
-            idx = torch.linspace(0, T - 1, self.sequence_length).long()
-            return video[idx]
-        pad = self.sequence_length - T
-        return torch.cat([video, video[-1:].repeat(pad, 1, 1, 1)], dim=0)
+
+        # How many source frames correspond to one output frame
+        stride = max(1, round(source_fps / self.TARGET_FPS))
+
+        # Pick frames at fixed stride
+        indices = list(range(0, T, stride))
+
+        if len(indices) >= self.sequence_length:
+            # Clip to sequence_length
+            indices = indices[: self.sequence_length]
+        else:
+            # Pad by repeating last frame
+            pad = self.sequence_length - len(indices)
+            indices += [indices[-1]] * pad
+
+        return video[torch.tensor(indices)]
 
     def __getitem__(self, index: int):
         video_path, label = self.samples[index]
 
         try:
-            video = read_video_cv2(video_path)
-        except Exception as e:
-            print(f"⚠️ Skipping bad video: {video_path}")
-            return self.__getitem__((index + 1) % len(self))  # safer recursion
+            video, fps = read_video_torchvision(video_path)  # (T, H, W, C) uint8
+        except Exception:
+            return self.__getitem__((index + 1) % len(self))
 
-        video = self._sample_frames(video)
-        video = video.permute(0, 3, 1, 2).float().div(255.0)
+        video = self._sample_frames(video, fps)  # (T, H, W, C)
+        video = video.permute(0, 3, 1, 2).float().div(255.0)  # (T, C, H, W) float
 
         video = F.interpolate(
             video, size=self.frame_size, mode="bilinear", align_corners=False
         )
+
+        if self.transform:
+            seed = torch.randint(0, 1_000_000, (1,)).item()
+            frames = []
+            for frame in video:
+                torch.manual_seed(seed)
+                frames.append(self.transform(frame))
+            video = torch.stack(frames)
 
         return video, label
 
@@ -123,7 +149,7 @@ def main() -> None:
         video, label = dataset[idx]
         stem = Path(dataset.samples[idx][0]).stem
         fname = f"{stem}_class-{dataset.class_names[label]}.mp4"
-        write_video_cv2(video, out_dir / fname, fps=args.fps)
+        write_video_torchvision(video, out_dir / fname, fps=args.fps)
         print(f"  ✅ {fname}")
 
 
