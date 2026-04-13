@@ -1,0 +1,73 @@
+{
+  "timestamp": "20260411_104743",
+  "dataset": "violence-detection-dataset",
+  "dataset_mode": "classification",
+  "classes": [
+    "non-violent",
+    "violent"
+  ],
+  "checkpoint": {
+    "epoch": 3,
+    "saved_loss": 0.337842
+  },
+  "metrics": {
+    "loss": 0.246799,
+    "accuracy": 0.888889,
+    "precision": 0.902961,
+    "recall": 0.860294,
+    "f1": 0.875
+  },
+  "artifacts": {
+    "confusion_matrix": "experiments/20260411_104743/confusion_matrix.png",
+    "prediction_clips": [
+      {
+        "path": "experiments/20260411_104743/correct/cam2_24_true-non-violent_pred-non-violent.mp4",
+        "true": "non-violent",
+        "pred": "non-violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_104743/wrong/cam2_27_true-non-violent_pred-violent.mp4",
+        "true": "non-violent",
+        "pred": "violent",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260411_104743/correct/cam2_95_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_104743/correct/cam1_84_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_104743/correct/cam1_100_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_104743/correct/cam1_17_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_104743/correct/cam2_39_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_104743/correct/cam1_21_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      }
+    ]
+  }
+}

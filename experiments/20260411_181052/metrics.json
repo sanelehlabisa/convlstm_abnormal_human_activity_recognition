@@ -1,0 +1,121 @@
+{
+  "timestamp": "20260411_181052",
+  "dataset": "violence-detection-dataset",
+  "dataset_mode": "classification",
+  "classes": [
+    "non-violent",
+    "violent"
+  ],
+  "checkpoint": {
+    "epoch": 5,
+    "saved_loss": 0.382706
+  },
+  "metrics": {
+    "loss": 0.288647,
+    "accuracy": 0.84507,
+    "precision": 0.837662,
+    "recall": 0.816522,
+    "f1": 0.825084
+  },
+  "artifacts": {
+    "confusion_matrix": "experiments/20260411_181052/confusion_matrix.png",
+    "prediction_clips": [
+      {
+        "path": "experiments/20260411_181052/correct/cam1_100_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam1_49_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam2_32_true-non-violent_pred-non-violent.mp4",
+        "true": "non-violent",
+        "pred": "non-violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam2_65_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam1_34_true-non-violent_pred-non-violent.mp4",
+        "true": "non-violent",
+        "pred": "non-violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam2_9_true-non-violent_pred-non-violent.mp4",
+        "true": "non-violent",
+        "pred": "non-violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam1_66_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam1_56_true-non-violent_pred-non-violent.mp4",
+        "true": "non-violent",
+        "pred": "non-violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam2_27_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam2_84_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam1_17_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam1_54_true-non-violent_pred-non-violent.mp4",
+        "true": "non-violent",
+        "pred": "non-violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam2_114_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      },
+      {
+        "path": "experiments/20260411_181052/wrong/cam1_17_true-non-violent_pred-violent.mp4",
+        "true": "non-violent",
+        "pred": "violent",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260411_181052/wrong/cam1_48_true-non-violent_pred-violent.mp4",
+        "true": "non-violent",
+        "pred": "violent",
+        "correct": false
+      },
+      {
+        "path": "experiments/20260411_181052/correct/cam1_5_true-violent_pred-violent.mp4",
+        "true": "violent",
+        "pred": "violent",
+        "correct": true
+      }
+    ]
+  }
+}
