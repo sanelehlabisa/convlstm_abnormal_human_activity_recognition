@@ -14,6 +14,7 @@ python -m src.train \
     --sequence_length 32 \
     --height 64 \
     --width 64 \
+    --aug_copies 4 \
     --num_workers 2 \
     --pin_memory
 """
@@ -28,7 +29,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchmetrics
+from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+
 from tqdm import tqdm
 
 from .dataset import AHARDataset
@@ -45,8 +48,9 @@ parser.add_argument("--weight_decay", type=float, default=1e-4)
 parser.add_argument("--sequence_length", type=int, default=32)
 parser.add_argument("--width", type=int, default=128)
 parser.add_argument("--height", type=int, default=128)
+parser.add_argument("--aug_copies", type=int, default=4)
 parser.add_argument("--train_ratio", type=float, default=0.7)
-parser.add_argument("--val_ratio", type=float, default=0.15)
+parser.add_argument("--val_ratio", type=float, default=0.1)
 parser.add_argument("--num_workers", type=int, default=0)
 parser.add_argument("--pin_memory", action="store_true")
 
@@ -99,6 +103,7 @@ def validate_one_epoch(
 def main() -> None:
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.backends.cudnn.benchmark = True
     print(f"🖥  Using device: {device}")
 
     dataset = AHARDataset(
@@ -124,7 +129,48 @@ def main() -> None:
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
     )
-    train_loader = DataLoader(train_set, shuffle=True, **loader_kwargs)
+    # Augmentation for training only
+    train_transform = transforms.Compose(
+        [
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomApply(
+                [transforms.ColorJitter(0.4, 0.4, 0.3, 0.05)], p=0.6
+            ),
+            transforms.RandomApply([transforms.RandomRotation(10)], p=0.3),
+            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.2),
+            transforms.TrivialAugmentWide(),  # strong random single aug on top
+        ]
+    )
+
+    # Build augmented copies of the train split only. Val and test datasets are untouched
+    base_train_dataset = AHARDataset(
+        args.dataset_dir,
+        args.sequence_length,
+        (args.width, args.height),
+    )
+    aug_train_dataset = AHARDataset(
+        args.dataset_dir,
+        args.sequence_length,
+        (args.width, args.height),
+        transform=train_transform,
+    )
+
+    # Extract same indices as the original split for all augmented copies
+    train_indices = train_set.indices
+
+    clean_subset = torch.utils.data.Subset(base_train_dataset, train_indices)
+    aug_subsets = [
+        torch.utils.data.Subset(aug_train_dataset, train_indices)
+        for _ in range(args.aug_copies)
+    ]
+
+    # Concatenate training data
+    combined_train = torch.utils.data.ConcatDataset([clean_subset] + aug_subsets)
+    print(
+        f"📈 Training set expanded: {len(train_indices)} → {len(combined_train)} samples"
+    )
+
+    train_loader = DataLoader(combined_train, shuffle=True, **loader_kwargs)
     val_loader = DataLoader(val_set, shuffle=False, **loader_kwargs)
     test_loader = DataLoader(test_set, shuffle=False, **loader_kwargs)
 
@@ -193,7 +239,7 @@ def main() -> None:
     out_dir = Path("outputs") / "train_samples"
     out_dir.mkdir(parents=True, exist_ok=True)
     save_prediction_clips(
-        model, test_set, dataset.class_names, device, out_dir, num_samples=1
+        model, test_set, dataset.class_names, device, out_dir, num_samples=8
     )
 
 
