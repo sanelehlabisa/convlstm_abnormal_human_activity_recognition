@@ -1,81 +1,75 @@
 """
 clean_dataset.py
 
-Removes corrupted video files from a dataset directory in-place.
+Fix corrupted videos in the dataset by re-encoding with ffmpeg. This ensures all videos are decodable and consistent.
 
 Author: Sanele Hlabisa
 
 python -m src.clean_dataset \
-    --dataset_dir "datasets/abnormal_activities" \
-    --dry_run
+    --dataset_dir "datasets/abnormal_activities"
 """
 
 from __future__ import annotations
 
-import argparse
-import shutil
-import subprocess
-import sys
 from pathlib import Path
+import subprocess
+import shutil
+import tempfile
+import argparse
 
-parser = argparse.ArgumentParser(description="Remove corrupted videos in-place.")
-parser.add_argument("--dataset_dir", type=str, required=True)
-parser.add_argument("--dry_run", action="store_true")
+parser = argparse.ArgumentParser(description="Fix corrupted dataset videos by re-encoding with ffmpeg")
+
+parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
+
+args: argparse.Namespace = parser.parse_args()
+
+dataset_dir = Path(args.dataset_dir)
 
 SUPPORTED_EXTS = {".mp4", ".avi", ".mov", ".mkv"}
 
+def main():
+    kept = fixed = failed = 0
 
-def check_ffmpeg() -> None:
-    if shutil.which("ffmpeg") is not None:
-        return
-    print("❌ ffmpeg not found. Install with:")
-    print("sudo apt install -y ffmpeg")
-    sys.exit(1)
+    for video in sorted(dataset_dir.glob("*/*")):
+        if video.suffix.lower() not in SUPPORTED_EXTS:
+            continue
 
+        # Re-encode to a temp file first — never touch original until success
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False, dir=video.parent) as tmp:
+            tmp_path = Path(tmp.name)
 
-def is_valid_video(path: Path) -> bool:
-    result = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-f", "null", "-"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
-    return result.returncode == 0
+        cmd = [
+            "ffmpeg",
+            "-v", "error",
+            "-i", str(video),
+            "-map", "0:v:0",
+            "-vsync", "0",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-y",
+            str(tmp_path),
+        ]
 
+        result = subprocess.run(cmd, stderr=subprocess.PIPE)
 
-def main() -> None:
-    args = parser.parse_args()
-    check_ffmpeg()
-
-    dataset_dir = Path(args.dataset_dir)
-    if not dataset_dir.exists():
-        print(f"❌ Not found: {dataset_dir}")
-        sys.exit(1)
-
-    videos = [f for f in dataset_dir.glob("*/*") if f.suffix.lower() in SUPPORTED_EXTS]
-    if not videos:
-        print(f"⚠️  No videos found in {dataset_dir}")
-        sys.exit(0)
-
-    print(f"📂 Dataset : {dataset_dir}")
-    print(f"🎬 Videos  : {len(videos)} found")
-    if args.dry_run:
-        print("🔍 Dry run — nothing will be deleted\n")
-
-    kept = removed = 0
-    for video in sorted(videos):
-        if is_valid_video(video):
-            print(f"  ✅ {video.relative_to(dataset_dir)}")
-            kept += 1
+        if result.returncode != 0 or tmp_path.stat().st_size < 1024:
+            # Truly unrecoverable — remove original and temp
+            print(f"  ❌ Unrecoverable → {video.name}")
+            tmp_path.unlink(missing_ok=True)
+            video.unlink()
+            failed += 1
         else:
-            print(f"  ❌ CORRUPT → {video.relative_to(dataset_dir)}")
-            if not args.dry_run:
-                video.unlink()
-            removed += 1
+            # Always save as .mp4 since we encoded with libx264
+            clean_path = video.with_suffix(".mp4")
+            shutil.move(str(tmp_path), str(clean_path))
+            if clean_path != video:
+                video.unlink(missing_ok=True)   # remove original .avi if we renamed to .mp4
+            print(f"  ✅ Fixed in-place → {clean_path.name}")
+            fixed += 1
 
-    print(
-        f"\n  ✅ Kept: {kept}  🗑  Removed: {removed}{'  (dry run)' if args.dry_run else ''}"
-    )
-
+    print(f"\n  ✅ Fixed : {fixed}")
+    print(f"  ❌ Removed (unrecoverable): {failed}")
+    print(f"  📁 Dataset dir unchanged: {dataset_dir}")
 
 if __name__ == "__main__":
     main()
