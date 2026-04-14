@@ -177,6 +177,10 @@ def main() -> None:
     model = ConvLSTMModel(num_classes, input_shape=(3, args.height, args.width)).to(
         device
     )
+    # If using CUDA, compile the model for potential speedup (PyTorch 2.0+)
+    if device == torch.device("cuda"):
+        model = torch.compile(model)
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
