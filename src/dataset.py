@@ -107,19 +107,22 @@ class AHARDataset(Dataset):
             return self.__getitem__((index + 1) % len(self))
 
         video = self._sample_frames(video, fps)  # (T, H, W, C)
-        video = video.permute(0, 3, 1, 2).float().div(255.0)  # (T, C, H, W) float
+        video = video.permute(0, 3, 1, 2)  # keep uint8
 
         video = F.interpolate(
-            video, size=self.frame_size, mode="bilinear", align_corners=False
-        )
+            video.float(), size=self.frame_size, mode="bilinear", align_corners=False
+        ).byte()  # go back to uint8
 
         if self.transform:
             seed = torch.randint(0, 1_000_000, (1,)).item()
             frames = []
             for frame in video:
                 torch.manual_seed(seed)
-                frames.append(self.transform(frame))
+                frames.append(self.transform(frame))  # expects uint8
             video = torch.stack(frames)
+
+        # Final normalization
+        video = video.float().div(255.0)
 
         return video, label
 
