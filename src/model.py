@@ -25,42 +25,171 @@ import torchvision
 from .dataset import AHARDataset
 
 
+# ============================================================
+# ConvLSTM2D Cell - replicates Keras ConvLSTM2D behaviour
+# Input:  sequence (B, T, C, H, W)
+# Output: last hidden state (B, filters, H, W)
+# ============================================================
+
+
+class ConvLSTM2DCell(nn.Module):
+    """Single ConvLSTM2D cell. Processes one timestep."""
+
+    def __init__(self, in_channels: int, filters: int, kernel_size: int = 3) -> None:
+        super().__init__()
+        pad = kernel_size // 2
+
+        # Gates: input, forget, cell, output - all in one conv for efficiency
+        # Input comes from x_t and h_{t-1} concatenated on channel dim
+        self.conv = nn.Conv2d(
+            in_channels + filters,
+            filters * 4,  # i, f, g, o gates
+            kernel_size=kernel_size,
+            padding=pad,
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,  # (B, C, H, W)
+        h: torch.Tensor,  # (B, filters, H, W)
+        c: torch.Tensor,  # (B, filters, H, W)
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        combined = torch.cat([x, h], dim=1)  # (B, C+filters, H, W)
+        gates: torch.Tensor = self.conv(combined)  # (B, filters*4, H, W)
+
+        i, f, g, o = gates.chunk(4, dim=1)
+
+        i = torch.sigmoid(i)
+        f = torch.sigmoid(f)
+        g = torch.tanh(g)
+        o = torch.sigmoid(o)
+
+        c_next = f * c + i * g
+        h_next = o * torch.tanh(c_next)
+
+        return h_next, c_next
+
+
+class ConvLSTM2D(nn.Module):
+    """Runs ConvLSTM2DCell over a sequence, returns last hidden state."""
+
+    def __init__(self, in_channels: int, filters: int, kernel_size: int = 3) -> None:
+        super().__init__()
+        self.filters = filters
+        self.cell = ConvLSTM2DCell(in_channels, filters, kernel_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: (B, T, C, H, W)
+        returns: (B, filters, H, W)  - last hidden state only
+        """
+        B, T, C, H, W = x.shape
+
+        h = torch.zeros(B, self.filters, H, W, device=x.device)
+        c = torch.zeros(B, self.filters, H, W, device=x.device)
+
+        for t in range(T):
+            h, c = self.cell(x[:, t], h, c)
+
+        return h  # (B, filters, H, W)
+
+
+# ============================================================
+# Full model - matches paper pseudocode exactly
+# ============================================================
+
+
 class ConvLSTMModel(nn.Module):
     """
-    CNN + LSTM model for video classification.
-    Input shape: (B, T, C, H, W)
-    Output shape: (B, num_classes)
+    Replicates the paper architecture:
+      TimeDistributed(Conv2D(16))
+      → ConvLSTM2D(64)
+      → BatchNorm2D
+      → Conv2D(16)
+      → Dropout(0.5)
+      → Flatten
+      → Dense(256)
+      → Dropout(0.5)
+      → Dense(num_classes)
+
+    Input:  (B, T, C, H, W)
+    Output: (B, num_classes)
     """
 
     def __init__(
         self,
         num_classes: int,
-        hidden_size: int = 256,
-        dropout: float = 0.5,
-        input_shape: tuple[int, int, int] = (3, 224, 224),
+        input_shape: tuple[int, int, int] = (3, 64, 64),
     ) -> None:
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(16, 64, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(4)
 
-        with torch.no_grad():
-            dummy = torch.zeros(1, *input_shape)
-            dummy = self._cnn_forward(dummy)
-            feature_dim = dummy.view(1, -1).size(1)
+        C, H, W = input_shape
 
-        self.lstm = nn.LSTM(feature_dim, hidden_size, batch_first=True)
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(hidden_size, num_classes)
+        # Step 1 - TimeDistributed Conv2D(16)
+        # Applied per-frame - we handle time distribution via reshape in forward()
+        self.td_conv = nn.Conv2d(C, 16, kernel_size=3, padding=1)
 
-    def _cnn_forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.pool(F.relu(self.conv2(F.relu(self.conv1(x)))))
+        # Step 2 - ConvLSTM2D(64)
+        # Takes sequence of feature maps, outputs last hidden state
+        self.convlstm = ConvLSTM2D(in_channels=16, filters=64, kernel_size=3)
+
+        # Step 3 - BatchNorm on spatial output of ConvLSTM
+        self.bn = nn.BatchNorm2d(64)
+
+        # Step 4 - Conv2D(16) on final spatial map
+        self.conv_post = nn.Conv2d(64, 16, kernel_size=3, padding=1)
+
+        # Step 5 - Dropout
+        self.dropout1 = nn.Dropout(0.5)
+
+        # Step 6 - Flatten
+        self.flatten = nn.Flatten()
+
+        # Compute flattened size after conv_post
+
+        flat_size = 16 * H * W
+
+        # Step 7 - Dense(256)
+        self.fc1 = nn.Linear(flat_size, 256)
+
+        # Step 8 - Dropout(0.5)
+        self.dropout2 = nn.Dropout(0.5)
+
+        # Step 9 - Dense(num_classes)
+        self.fc2 = nn.Linear(256, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C, H, W = x.shape
-        x = self._cnn_forward(x.view(B * T, C, H, W)).reshape(B, T, -1)
-        x, _ = self.lstm(x)
-        return self.fc(self.dropout(x[:, -1, :]))
+
+        # Step 1 - TimeDistributed Conv2D: apply same conv to every frame
+        x = x.view(B * T, C, H, W)
+        x = F.relu(self.td_conv(x))  # (B*T, 16, H, W)
+        x = x.view(B, T, 16, H, W)  # restore sequence
+
+        # Step 2 - ConvLSTM2D: returns last hidden state
+        x = self.convlstm(x)  # (B, 64, H, W)
+
+        # Step 3 - BatchNorm
+        x = self.bn(x)
+
+        # Step 4 - Conv2D(16)
+        x = F.relu(self.conv_post(x))  # (B, 16, H, W)
+
+        # Step 5 - Dropout
+        x = self.dropout1(x)
+
+        # Step 6 - Flatten
+        x = self.flatten(x)  # (B, 16*H*W)
+
+        # Step 7 - Dense(256)
+        x = F.relu(self.fc1(x))
+
+        # Step 8 - Dropout(0.5)
+        x = self.dropout2(x)
+
+        # Step 9 - Dense(num_classes)
+        return self.fc2(x)
 
 
 def main() -> None:
@@ -94,7 +223,7 @@ def main() -> None:
         )
         print(f"📂 Loaded → epoch={epoch}, loss={loss:.4f}")
     else:
-        print("⚠️  No model_dir — random weights (shape check only)")
+        print("⚠️  No model_dir - random weights (shape check only)")
 
     idx = random.randint(0, len(dataset) - 1)
     frames, true_label = dataset[idx]
