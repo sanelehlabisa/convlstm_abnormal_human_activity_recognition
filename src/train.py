@@ -178,8 +178,8 @@ def main() -> None:
         device
     )
     # If using CUDA, compile the model for potential speedup (PyTorch 2.0+)
-    if device == torch.device("cuda"):
-        model = torch.compile(model)
+    #if device == torch.device("cuda"):
+    #    model = torch.compile(model)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(
