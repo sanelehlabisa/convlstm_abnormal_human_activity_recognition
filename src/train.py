@@ -190,7 +190,6 @@ def main() -> None:
         mode="min",
         factor=0.9,
         patience=3,
-        verbose=True
     )
     acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
         device
