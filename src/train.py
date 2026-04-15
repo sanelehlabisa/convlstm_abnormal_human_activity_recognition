@@ -185,6 +185,13 @@ def main() -> None:
     optimizer = optim.Adam(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
+    scheduler: optim.lr_scheduler.ReduceLROnPlateau = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=0.9,
+        patience=3,
+        verbose=True
+    )
     acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
         device
     )
@@ -203,6 +210,7 @@ def main() -> None:
         val_loss, val_acc = validate_one_epoch(
             model, val_loader, criterion, acc_fn.clone(), device
         )
+        scheduler.step(val_loss)
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
