@@ -9,6 +9,8 @@ Author: Sanele Hlabisa
 python -m src.train \
     --dataset_dir "datasets/abnormal_activities" \
     --model_dir "models" \
+    --checkpoint_path "models/best_model.pth" \
+    --finetune \
     --batch_size 32 \
     --epochs 64 \
     --sequence_length 32 \
@@ -41,6 +43,8 @@ from .utils import plot_training_curves, save_model, save_prediction_clips
 parser = argparse.ArgumentParser(description="Train ConvLSTM for AHAR")
 parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
 parser.add_argument("--model_dir", type=str, default="models")
+parser.add_argument("--checkpoint_path", type=str, default="models/best_model.pth")
+parser.add_argument("--finetune", action="store_true", help="Whether to fine-tune from checkpoint (if exists)")
 parser.add_argument("--batch_size", type=int, default=8)
 parser.add_argument("--epochs", type=int, default=16)
 parser.add_argument("--learning_rate", type=float, default=1e-4)
@@ -167,7 +171,7 @@ def main() -> None:
     # Concatenate training data
     combined_train = torch.utils.data.ConcatDataset([clean_subset] + aug_subsets)
     print(
-        f"📈 Training set expanded: {len(train_indices)} → {len(combined_train)} samples"
+        f"📈 Training set expanded: {len(train_indices)} -> {len(combined_train)} samples"
     )
 
     train_loader = DataLoader(combined_train, shuffle=True, **loader_kwargs)
@@ -181,6 +185,39 @@ def main() -> None:
     #if device == torch.device("cuda"):
     #    model = torch.compile(model)
 
+    # Load best if exists to resume training, otherwise start fresh
+    if Path(args.checkpoint_path).is_file():
+        print(f"⏳ Loading checkpoint from {args.checkpoint_path}...")
+        checkpoint = torch.load(args.checkpoint_path, map_location=device)
+
+        # Build model with the checkpoint's original num_classes to load weights cleanly
+        ckpt_num_classes = checkpoint["model_state_dict"]["fc2.weight"].shape[0]
+        loaded_model = ConvLSTMModel(
+            num_classes=ckpt_num_classes,
+            input_shape=(3, args.height, args.width),
+        ).to(device)
+        loaded_model.load_state_dict(checkpoint["model_state_dict"])
+        print(f"✅ Checkpoint loaded (epoch {checkpoint['epoch']}, trained on {ckpt_num_classes} classes)")
+
+        if ckpt_num_classes != num_classes:
+            # Replace output layer for new dataset
+            loaded_model.fc2 = nn.Linear(loaded_model.fc2.in_features, num_classes).to(device)
+            print(f"🔁 Output layer replaced: {ckpt_num_classes} -> {num_classes} classes")
+
+        if args.finetune:
+            # Freeze everything except fc2 - compare by parameter id, not tensor value
+            fc2_param_ids = {id(p) for p in loaded_model.fc2.parameters()}
+            for param in loaded_model.parameters():
+                param.requires_grad = id(param) in fc2_param_ids
+            frozen  = sum(1 for p in loaded_model.parameters() if not p.requires_grad)
+            trainable = sum(1 for p in loaded_model.parameters() if p.requires_grad)
+            print(f"🔒 Frozen layers: {frozen} | 🔓 Trainable layers: {trainable}")
+
+        model = loaded_model
+
+    else:
+        print(f"⚠️  No checkpoint at {args.checkpoint_path} - starting from scratch")
+            
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
@@ -216,7 +253,7 @@ def main() -> None:
         train_accs.append(train_acc)
         val_accs.append(val_acc)
         print(
-            f"  Loss → Train: {train_loss:.4f} Val: {val_loss:.4f} | Acc → Train: {train_acc:.4f} Val: {val_acc:.4f}"
+            f"  Loss -> Train: {train_loss:.4f} Val: {val_loss:.4f} | Acc -> Train: {train_acc:.4f} Val: {val_acc:.4f}"
         )
 
         # Save every epoch; also copy to best_model.pth if improved
