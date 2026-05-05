@@ -56,7 +56,7 @@ def plot_training_curves(
     Path(save_dir).mkdir(parents=True, exist_ok=True)
     save_path = str(Path(save_dir) / f"training_curves_{dataset_name}.png")
     plt.savefig(save_path, dpi=150)
-    print(f"📊 Saved training curves → {save_path}")
+    print(f"📊 Saved training curves -> {save_path}")
 
     if show:
         plt.show()
@@ -93,7 +93,7 @@ def plot_confusion_matrix(
         p = Path(save_path)
         final_path = str(p.parent / f"{p.stem}_{dataset_name}{p.suffix}")
         plt.savefig(final_path, dpi=150)
-        print(f"📊 Saved confusion matrix → {final_path}")
+        print(f"📊 Saved confusion matrix -> {final_path}")
 
     if show:
         plt.show()
@@ -134,7 +134,7 @@ def save_model(
     with open(ckpt_path.parent / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)
 
-    print(f"✅ Saved checkpoint → {ckpt_path}")
+    print(f"✅ Saved checkpoint -> {ckpt_path}")
 
 
 def load_model(
@@ -169,7 +169,7 @@ def read_video_torchvision(path: Path) -> tuple[torch.Tensor, float]:
         str(path), pts_unit="sec", output_format="TCHW"
     )
     # read_video returns (T, C, H, W) — permute to (T, H, W, C) to match our pipeline
-    video = video.permute(0, 2, 3, 1)  # (T, C, H, W) → (T, H, W, C)
+    video = video.permute(0, 2, 3, 1)  # (T, C, H, W) -> (T, H, W, C)
     fps = info.get("video_fps", 30.0)
     return video, fps
 
