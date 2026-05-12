@@ -218,8 +218,8 @@ def main() -> None:
 
     # ---- Search space ----
     search_space = {
-        "convlstm_filters": [32, 64, 128],
-        "dense_units": [128, 256, 512],
+        "convlstm_filters": [4, 8, 16],
+        "dense_units": [16, 32, 64],
         "dropout": [0.3, 0.5],
         "extra_conv": [False, True],
         "optimizer": ["adam", "sgd"],
