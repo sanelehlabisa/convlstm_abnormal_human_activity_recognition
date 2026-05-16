@@ -2,7 +2,6 @@
 train.py
 
 Training script for ConvLSTM-based Abnormal Human Activity Recognition (AHAR).
-Handles dataset splitting, training, validation, checkpointing, and visualization.
 
 Author: Sanele Hlabisa
 
@@ -43,8 +42,8 @@ from .utils import plot_training_curves, save_model, save_prediction_clips
 parser = argparse.ArgumentParser(description="Train ConvLSTM for AHAR")
 parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
 parser.add_argument("--model_dir", type=str, default="models")
-parser.add_argument("--checkpoint_path", type=str, default="models/best_model.pth")
-parser.add_argument("--finetune", action="store_true", help="Whether to fine-tune from checkpoint (if exists)")
+parser.add_argument("--checkpoint_path", type=str, default=None)
+parser.add_argument("--finetune", action="store_true")
 parser.add_argument("--batch_size", type=int, default=8)
 parser.add_argument("--epochs", type=int, default=16)
 parser.add_argument("--learning_rate", type=float, default=1e-4)
@@ -128,11 +127,6 @@ def main() -> None:
     )
     print(f"📊 Train: {n_train} | Val: {n_val} | Test: {n_test}")
 
-    loader_kwargs = dict(
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_memory,
-    )
     # Augmentation for training only
     train_transform = transforms.Compose(
         [
@@ -146,75 +140,77 @@ def main() -> None:
         ]
     )
 
-    # Build augmented copies of the train split only. Val and test datasets are untouched
-    base_train_dataset = AHARDataset(
-        args.dataset_dir,
-        args.sequence_length,
-        (args.width, args.height),
+    base_ds = AHARDataset(
+        args.dataset_dir, args.sequence_length, (args.width, args.height)
     )
-    aug_train_dataset = AHARDataset(
+    aug_ds = AHARDataset(
         args.dataset_dir,
         args.sequence_length,
         (args.width, args.height),
         transform=train_transform,
     )
 
-    # Extract same indices as the original split for all augmented copies
     train_indices = train_set.indices
-
-    clean_subset = torch.utils.data.Subset(base_train_dataset, train_indices)
+    clean_subset = torch.utils.data.Subset(base_ds, train_indices)
     aug_subsets = [
-        torch.utils.data.Subset(aug_train_dataset, train_indices)
-        for _ in range(args.aug_copies)
+        torch.utils.data.Subset(aug_ds, train_indices) for _ in range(args.aug_copies)
     ]
-
-    # Concatenate training data
     combined_train = torch.utils.data.ConcatDataset([clean_subset] + aug_subsets)
-    print(
-        f"📈 Training set expanded: {len(train_indices)} -> {len(combined_train)} samples"
-    )
+    print(f"📈 Train expanded: {len(train_indices)} → {len(combined_train)} samples")
 
-    train_loader = DataLoader(combined_train, shuffle=True, **loader_kwargs)
-    val_loader = DataLoader(val_set, shuffle=False, **loader_kwargs)
-    test_loader = DataLoader(test_set, shuffle=False, **loader_kwargs)
+    loader_kw = dict(
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        pin_memory=args.pin_memory,
+    )
+    train_loader = DataLoader(combined_train, shuffle=True, **loader_kw)
+    val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
+    test_loader = DataLoader(test_set, shuffle=False, **loader_kw)
 
     model = ConvLSTMModel(num_classes, input_shape=(3, args.height, args.width)).to(
         device
     )
-    # If using CUDA, compile the model for potential speedup (PyTorch 2.0+)
-    #if device == torch.device("cuda"):
-    #    model = torch.compile(model)
 
-    # Load best if exists to resume training, otherwise start fresh
-    if Path(args.checkpoint_path).is_file():
-        print(f"⏳ Loading checkpoint from {args.checkpoint_path}...")
-        checkpoint = torch.load(args.checkpoint_path, map_location=device)
+    if args.checkpoint_path and Path(args.checkpoint_path).is_file():
+        import zipfile
 
-        # Build model with the checkpoint's original num_classes to load weights cleanly
-        ckpt_num_classes = checkpoint["model_state_dict"]["fc2.weight"].shape[0]
-        loaded_model = ConvLSTMModel(
-            num_classes=ckpt_num_classes,
-            input_shape=(3, args.height, args.width),
-        ).to(device)
-        loaded_model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"✅ Checkpoint loaded (epoch {checkpoint['epoch']}, trained on {ckpt_num_classes} classes)")
+        if not zipfile.is_zipfile(args.checkpoint_path):
+            print(
+                f"❌ Checkpoint corrupted ({Path(args.checkpoint_path).stat().st_size/1e6:.1f} MB) - starting fresh"
+            )
+        else:
+            print(f"⏳ Loading checkpoint: {args.checkpoint_path}")
+            checkpoint = torch.load(
+                args.checkpoint_path, map_location=device, weights_only=True
+            )
+            ckpt_classes = checkpoint["model_state_dict"]["fc2.weight"].shape[0]
+            loaded_model = ConvLSTMModel(
+                ckpt_classes, input_shape=(3, args.height, args.width)
+            ).to(device)
+            loaded_model.load_state_dict(checkpoint["model_state_dict"])
+            print(
+                f"✅ Loaded (epoch {checkpoint['epoch']}, trained on {ckpt_classes} classes)"
+            )
 
-        if ckpt_num_classes != num_classes:
-            # Replace output layer for new dataset
-            loaded_model.fc2 = nn.Linear(loaded_model.fc2.in_features, num_classes).to(device)
-            print(f"🔁 Output layer replaced: {ckpt_num_classes} -> {num_classes} classes")
+            if ckpt_classes != num_classes:
+                loaded_model.fc2 = nn.Linear(
+                    loaded_model.fc2.in_features, num_classes
+                ).to(device)
+                print(
+                    f"🔁 Output layer replaced: {ckpt_classes} → {num_classes} classes"
+                )
 
-        if args.finetune:
-            # Freeze everything except fc2 - compare by parameter id, not tensor value
-            fc2_param_ids = {id(p) for p in loaded_model.fc2.parameters()}
-            for param in loaded_model.parameters():
-                param.requires_grad = id(param) in fc2_param_ids
-            frozen  = sum(1 for p in loaded_model.parameters() if not p.requires_grad)
-            trainable = sum(1 for p in loaded_model.parameters() if p.requires_grad)
-            print(f"🔒 Frozen layers: {frozen} | 🔓 Trainable layers: {trainable}")
+            if args.finetune:
+                fc2_ids = {id(p) for p in loaded_model.fc2.parameters()}
+                for p in loaded_model.parameters():
+                    p.requires_grad = id(p) in fc2_ids
+                frozen = sum(
+                    1 for p in loaded_model.parameters() if not p.requires_grad
+                )
+                trainable = sum(1 for p in loaded_model.parameters() if p.requires_grad)
+                print(f"🔒 Frozen: {frozen} | 🔓 Trainable: {trainable}")
 
-        model = loaded_model
-
+            model = loaded_model
     else:
         print(f"⚠️  No checkpoint at {args.checkpoint_path} - starting from scratch")
             
@@ -222,11 +218,8 @@ def main() -> None:
     optimizer = optim.Adam(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
-    scheduler: optim.lr_scheduler.ReduceLROnPlateau = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.9,
-        patience=3,
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=5
     )
     acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
         device
@@ -234,12 +227,15 @@ def main() -> None:
 
     train_losses, val_losses, train_accs, val_accs = [], [], [], []
     best_val_loss = float("inf")
+    Path(args.model_dir).mkdir(parents=True, exist_ok=True)
 
     print("🚀 Training...")
     start = timer()
 
     for epoch in range(args.epochs):
-        print(f"\n🧠 Epoch {epoch+1}/{args.epochs}")
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"\n🧠 Epoch {epoch+1}/{args.epochs}  lr={current_lr:.2e}")
+
         train_loss, train_acc = train_one_epoch(
             model, train_loader, criterion, optimizer, acc_fn, device
         )
@@ -256,16 +252,12 @@ def main() -> None:
             f"  Loss -> Train: {train_loss:.4f} Val: {val_loss:.4f} | Acc -> Train: {train_acc:.4f} Val: {val_acc:.4f}"
         )
 
-        # Save every epoch; also copy to best_model.pth if improved
-        ckpt_path = str(Path(args.model_dir) / f"checkpoint_epoch{epoch+1:03d}.pth")
-        save_model(model, optimizer, epoch, val_loss, checkpoint_path=ckpt_path)
-
+        # Save only when val loss improves
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            import shutil
-
-            shutil.copy2(ckpt_path, str(Path(args.model_dir) / "best_model.pth"))
-            print(f"  ⭐ New best model saved (val_loss={val_loss:.4f})")
+            best_path = str(Path(args.model_dir) / "best_model.pth")
+            save_model(model, optimizer, epoch, val_loss, checkpoint_path=best_path)
+            print(f"  ⭐ Best model updated (val_loss={val_loss:.4f})")
 
     print(f"\n⏱  Done in {timer() - start:.1f}s")
 
