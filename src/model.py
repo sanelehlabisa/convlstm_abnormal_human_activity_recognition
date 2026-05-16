@@ -96,100 +96,80 @@ class ConvLSTM2D(nn.Module):
 
 
 # ============================================================
-# Full model - matches paper pseudocode exactly
+# Original paper model (~60M params at 128x128)
+# Renamed so other files importing ConvLSTMModel still work
+# ============================================================
+
+
+class ConvLSTMOriginal(nn.Module):
+    """
+    Paper architecture:
+      TimeDistributed Conv2D(16) - ConvLSTM2D(64) - BN
+      - Conv2D(16) - Dropout(0.5) - Flatten - Dense(256) - Dropout(0.5) - Output
+    """
+
+    def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
+        super().__init__()
+        C, H, W = input_shape
+        self.td_conv = nn.Conv2d(C, 16, 3, padding=1)
+        self.convlstm = ConvLSTM2D(16, 64)
+        self.bn = nn.BatchNorm2d(64)
+        self.conv_post = nn.Conv2d(64, 16, 3, padding=1)
+        self.dropout1 = nn.Dropout(0.5)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(16 * H * W, 256)
+        self.dropout2 = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(256, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, C, H, W = x.shape
+        x = F.relu(self.td_conv(x.view(B * T, C, H, W))).view(B, T, 16, H, W)
+        x = self.bn(self.convlstm(x))
+        x = self.dropout1(F.relu(self.conv_post(x)))
+        return self.fc2(self.dropout2(F.relu(self.fc1(self.flatten(x)))))
+
+
+# ============================================================
+# Lightweight baseline (~6M params at 128x128 - ~10x smaller)
+# Filters: 16-64-16  becomes  4-8-4
+# Dense:   256        becomes  64
+# This is ConvLSTMModel so all other files need zero changes
 # ============================================================
 
 
 class ConvLSTMModel(nn.Module):
     """
-    Replicates the paper architecture:
-      TimeDistributed(Conv2D(16))
-      → ConvLSTM2D(64)
-      → BatchNorm2D
-      → Conv2D(16)
-      → Dropout(0.5)
-      → Flatten
-      → Dense(256)
-      → Dropout(0.5)
-      → Dense(num_classes)
+    Lightweight variant of paper architecture (~10x fewer params):
+      TimeDistributed Conv2D(4) - ConvLSTM2D(8) - BN
+      - Conv2D(4) - Dropout(0.5) - Flatten - Dense(64) - Dropout(0.5) - Output
 
-    Input:  (B, T, C, H, W)
-    Output: (B, num_classes)
+    Same interface as ConvLSTMOriginal - drop-in replacement.
     """
 
-    def __init__(
-        self,
-        num_classes: int,
-        input_shape: tuple[int, int, int] = (3, 64, 64),
-    ) -> None:
+    def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
         super().__init__()
-
         C, H, W = input_shape
-
-        # Step 1 - TimeDistributed Conv2D(16)
-        # Applied per-frame - we handle time distribution via reshape in forward()
-        self.td_conv = nn.Conv2d(C, 16, kernel_size=3, padding=1)
-
-        # Step 2 - ConvLSTM2D(64)
-        # Takes sequence of feature maps, outputs last hidden state
-        self.convlstm = ConvLSTM2D(in_channels=16, filters=64, kernel_size=3)
-
-        # Step 3 - BatchNorm on spatial output of ConvLSTM
-        self.bn = nn.BatchNorm2d(64)
-
-        # Step 4 - Conv2D(16) on final spatial map
-        self.conv_post = nn.Conv2d(64, 16, kernel_size=3, padding=1)
-
-        # Step 5 - Dropout
+        self.td_conv = nn.Conv2d(C, 4, 3, padding=1)  # 16 - 4
+        self.convlstm = ConvLSTM2D(4, 8)  # 64 - 8
+        self.bn = nn.BatchNorm2d(8)
+        self.conv_post = nn.Conv2d(8, 4, 3, padding=1)  # 64-16 - 8-4
         self.dropout1 = nn.Dropout(0.5)
-
-        # Step 6 - Flatten
         self.flatten = nn.Flatten()
-
-        # Compute flattened size after conv_post
-
-        flat_size = 16 * H * W
-
-        # Step 7 - Dense(256)
-        self.fc1 = nn.Linear(flat_size, 256)
-
-        # Step 8 - Dropout(0.5)
+        self.fc1 = nn.Linear(4 * H * W, 64)  # 256 - 64
         self.dropout2 = nn.Dropout(0.5)
-
-        # Step 9 - Dense(num_classes)
-        self.fc2 = nn.Linear(256, num_classes)
+        self.fc2 = nn.Linear(64, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C, H, W = x.shape
+        x = F.relu(self.td_conv(x.view(B * T, C, H, W))).view(B, T, 4, H, W)
+        x = self.bn(self.convlstm(x))
+        x = self.dropout1(F.relu(self.conv_post(x)))
+        return self.fc2(self.dropout2(F.relu(self.fc1(self.flatten(x)))))
 
-        # Step 1 - TimeDistributed Conv2D: apply same conv to every frame
-        x = x.view(B * T, C, H, W)
-        x = F.relu(self.td_conv(x))  # (B*T, 16, H, W)
-        x = x.view(B, T, 16, H, W)  # restore sequence
 
-        # Step 2 - ConvLSTM2D: returns last hidden state
-        x = self.convlstm(x)  # (B, 64, H, W)
-
-        # Step 3 - BatchNorm
-        x = self.bn(x)
-
-        # Step 4 - Conv2D(16)
-        x = F.relu(self.conv_post(x))  # (B, 16, H, W)
-
-        # Step 5 - Dropout
-        x = self.dropout1(x)
-
-        # Step 6 - Flatten
-        x = self.flatten(x)  # (B, 16*H*W)
-
-        # Step 7 - Dense(256)
-        x = F.relu(self.fc1(x))
-
-        # Step 8 - Dropout(0.5)
-        x = self.dropout2(x)
-
-        # Step 9 - Dense(num_classes)
-        return self.fc2(x)
+# ============================================================
+# Sanity check
+# ============================================================
 
 
 def main() -> None:
@@ -202,6 +182,9 @@ def main() -> None:
     parser.add_argument("--height", type=int, default=64)
     parser.add_argument("--width", type=int, default=64)
     parser.add_argument("--fps", type=int, default=8)
+    parser.add_argument(
+        "--original", action="store_true", help="Use original large model"
+    )
     args = parser.parse_args()
 
     out_dir = Path("outputs") / "model_samples"
@@ -211,17 +194,24 @@ def main() -> None:
     dataset = AHARDataset(
         args.dataset_dir, args.sequence_length, (args.height, args.width)
     )
-    model = ConvLSTMModel(
+
+    ModelClass = ConvLSTMOriginal if args.original else ConvLSTMModel
+    model = ModelClass(
         dataset.num_classes, input_shape=(3, args.height, args.width)
     ).to(device)
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"🧠 Model: {ModelClass.__name__} | Params: {total_params:,}")
 
     if args.model_dir:
         from .utils import load_model
 
         model, _, epoch, loss = load_model(
-            model, base_path=args.model_dir, map_location=device
+            model,
+            checkpoint_path=f"{args.model_dir}/best_model.pth",
+            map_location=device,
         )
-        print(f"📂 Loaded → epoch={epoch}, loss={loss:.4f}")
+        print(f"📂 Loaded - epoch={epoch}, loss={loss:.4f}")
     else:
         print("⚠️  No model_dir - random weights (shape check only)")
 
@@ -248,7 +238,7 @@ def main() -> None:
     fname = f"{stem}_true-{true_name}_pred-{pred_name}_{correct}.mp4"
     clip = (frames * 255).byte().permute(0, 2, 3, 1).cpu()
     torchvision.io.write_video(str(out_dir / fname), clip, fps=args.fps)
-    print(f"\n🎬 Saved → {out_dir / fname}")
+    print(f"\n🎬 Saved - {out_dir / fname}")
 
 
 if __name__ == "__main__":
