@@ -255,7 +255,7 @@ def main() -> None:
         # Save only when val loss improves
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            best_path = str(Path(args.model_dir) / "best_model.pth")
+            best_path = str(Path(args.model_dir) / f"{Path(args.dataset_dir).name}_best_model.pth")
             save_model(model, optimizer, epoch, val_loss, checkpoint_path=best_path)
             print(f"  ⭐ Best model updated (val_loss={val_loss:.4f})")
 
