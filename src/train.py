@@ -136,7 +136,7 @@ def main() -> None:
             ),
             transforms.RandomApply([transforms.RandomRotation(10)], p=0.3),
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.2),
-            transforms.TrivialAugmentWide(),  # strong random single aug on top
+            # transforms.TrivialAugmentWide(),  # strong random single aug on top
         ]
     )
 
