@@ -53,8 +53,11 @@ def plot_training_curves(
 
     plt.tight_layout()
 
-    Path(save_dir).mkdir(parents=True, exist_ok=True)
-    save_path = str(Path(save_dir) / f"training_curves_{dataset_name}.png")
+    # Timestamped subfolder so each run gets its own curves file
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    curve_dir = Path(save_dir) / "curves"
+    curve_dir.mkdir(parents=True, exist_ok=True)
+    save_path = str(curve_dir / f"training_curves_{dataset_name}_{ts}.png")
     plt.savefig(save_path, dpi=150)
     print(f"📊 Saved training curves -> {save_path}")
 
@@ -85,7 +88,7 @@ def plot_confusion_matrix(
         colorbar=True,
         figsize=(max(6, len(class_names) * 1.5), max(5, len(class_names) * 1.4)),
     )
-    ax.set_title(f"Confusion Matrix — {dataset_name}", fontsize=14, pad=12)
+    ax.set_title(f"Confusion Matrix - {dataset_name}", fontsize=14, pad=12)
     plt.tight_layout()
 
     if save_path:
@@ -146,7 +149,7 @@ def load_model(
     """Load best_model.pth from base_path if available."""
     ckpt = Path(checkpoint_path)
     if not ckpt.exists():
-        print("⚠️  No checkpoint found — starting from scratch.")
+        print("⚠️  No checkpoint found - starting from scratch.")
         return model, optimizer, 0, float("inf")
 
     checkpoint = torch.load(ckpt, map_location=map_location)
@@ -162,13 +165,13 @@ def load_model(
 
 def read_video_torchvision(path: Path) -> tuple[torch.Tensor, float]:
     """
-    Read video using torchvision (PyAV backend — handles more codecs cleanly).
+    Read video using torchvision (PyAV backend - handles more codecs cleanly).
     Returns: frames (T, H, W, C) uint8, and fps float.
     """
     video, _, info = torchvision.io.read_video(
         str(path), pts_unit="sec", output_format="TCHW"
     )
-    # read_video returns (T, C, H, W) — permute to (T, H, W, C) to match our pipeline
+    # read_video returns (T, C, H, W) - permute to (T, H, W, C) to match our pipeline
     video = video.permute(0, 2, 3, 1)  # (T, C, H, W) -> (T, H, W, C)
     fps = info.get("video_fps", 30.0)
     return video, fps
