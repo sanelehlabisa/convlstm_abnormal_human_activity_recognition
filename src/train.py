@@ -6,10 +6,11 @@ Training script for ConvLSTM-based Abnormal Human Activity Recognition (AHAR).
 Author: Sanele Hlabisa
 
 python -m src.train \
-    --dataset_dir "datasets/abnormal_activities" \
+    --dataset_dir "datasets/violence-detection-dataset" \
     --model_dir "models" \
     --checkpoint_path "models/best_model.pth" \
-    --finetune \
+    --resume \
+    --finetune_full \
     --batch_size 32 \
     --epochs 64 \
     --sequence_length 32 \
@@ -35,7 +36,7 @@ from torch.utils.data import DataLoader, random_split
 
 from tqdm import tqdm
 
-from .dataset import AHARDataset
+from .dataset import AHARDataset, CachedAHARDataset
 from .model import ConvLSTMModel
 from .utils import plot_training_curves, save_model, save_prediction_clips
 
@@ -43,7 +44,19 @@ parser = argparse.ArgumentParser(description="Train ConvLSTM for AHAR")
 parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
 parser.add_argument("--model_dir", type=str, default="models")
 parser.add_argument("--checkpoint_path", type=str, default=None)
-parser.add_argument("--finetune", action="store_true")
+parser.add_argument(
+    "--resume",
+    action="store_true",
+    help="Resume training same dataset, no layer changes",
+)
+parser.add_argument(
+    "--finetune_last", action="store_true", help="Freeze all except last layer (fc2)"
+)
+parser.add_argument(
+    "--finetune_full",
+    action="store_true",
+    help="Load weights, unfreeze everything, train all layers",
+)
 parser.add_argument("--batch_size", type=int, default=8)
 parser.add_argument("--epochs", type=int, default=16)
 parser.add_argument("--learning_rate", type=float, default=1e-3)
@@ -140,10 +153,19 @@ def main() -> None:
         ]
     )
 
-    base_ds = AHARDataset(
+    # Use cached dataset if small enough (decodes once, serves from RAM)
+    DatasetClass = CachedAHARDataset if len(dataset) <= 2000 else AHARDataset
+    if DatasetClass is CachedAHARDataset:
+        print(f"⚡ Small dataset detected - using RAM cache for fast loading")
+
+    # Replace the three dataset constructions
+    dataset = DatasetClass(
         args.dataset_dir, args.sequence_length, (args.width, args.height)
     )
-    aug_ds = AHARDataset(
+    base_ds = DatasetClass(
+        args.dataset_dir, args.sequence_length, (args.width, args.height)
+    )
+    aug_ds = DatasetClass(
         args.dataset_dir,
         args.sequence_length,
         (args.width, args.height),
@@ -156,12 +178,14 @@ def main() -> None:
         torch.utils.data.Subset(aug_ds, train_indices) for _ in range(args.aug_copies)
     ]
     combined_train = torch.utils.data.ConcatDataset([clean_subset] + aug_subsets)
-    print(f"📈 Train expanded: {len(train_indices)} → {len(combined_train)} samples")
+    print(f"📈 Train expanded: {len(train_indices)} - {len(combined_train)} samples")
 
     loader_kw = dict(
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
+        persistent_workers=args.num_workers > 0,
+        prefetch_factor=2 if args.num_workers > 0 else None,
     )
     train_loader = DataLoader(combined_train, shuffle=True, **loader_kw)
     val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
@@ -171,36 +195,45 @@ def main() -> None:
         device
     )
 
+    # ---- Checkpoint loading ----
     if args.checkpoint_path and Path(args.checkpoint_path).is_file():
         import zipfile
 
         if not zipfile.is_zipfile(args.checkpoint_path):
-            print(
-                f"❌ Checkpoint corrupted ({Path(args.checkpoint_path).stat().st_size/1e6:.1f} MB) - starting fresh"
-            )
+            print(f"❌ Checkpoint corrupted - starting fresh")
         else:
-            print(f"⏳ Loading checkpoint: {args.checkpoint_path}")
+            print(f"⏳ Loading: {args.checkpoint_path}")
             checkpoint = torch.load(
                 args.checkpoint_path, map_location=device, weights_only=True
             )
             ckpt_classes = checkpoint["model_state_dict"]["fc2.weight"].shape[0]
+
             loaded_model = ConvLSTMModel(
                 ckpt_classes, input_shape=(3, args.height, args.width)
             ).to(device)
             loaded_model.load_state_dict(checkpoint["model_state_dict"])
+            total_params = sum(p.numel() for p in loaded_model.parameters())
             print(
-                f"✅ Loaded (epoch {checkpoint['epoch']}, trained on {ckpt_classes} classes)"
+                f"✅ Loaded epoch={checkpoint['epoch']} | classes={ckpt_classes} | params={total_params:,}"
             )
 
+            # Replace output layer if dataset has different classes
             if ckpt_classes != num_classes:
                 loaded_model.fc2 = nn.Linear(
                     loaded_model.fc2.in_features, num_classes
                 ).to(device)
                 print(
-                    f"🔁 Output layer replaced: {ckpt_classes} → {num_classes} classes"
+                    f"🔁 Output layer replaced: {ckpt_classes} - {num_classes} classes"
                 )
 
-            if args.finetune:
+            if args.resume:
+                # Continue training everything as-is, no freezing
+                for p in loaded_model.parameters():
+                    p.requires_grad = True
+                print("▶️  Resuming - all layers trainable")
+
+            elif args.finetune_last:
+                # Freeze all except fc2
                 fc2_ids = {id(p) for p in loaded_model.fc2.parameters()}
                 for p in loaded_model.parameters():
                     p.requires_grad = id(p) in fc2_ids
@@ -208,12 +241,19 @@ def main() -> None:
                     1 for p in loaded_model.parameters() if not p.requires_grad
                 )
                 trainable = sum(1 for p in loaded_model.parameters() if p.requires_grad)
-                print(f"🔒 Frozen: {frozen} | 🔓 Trainable: {trainable}")
+                print(f"🔒 Frozen: {frozen} | 🔓 Trainable (fc2 only): {trainable}")
+
+            elif args.finetune_full:
+                # Load weights, unfreeze everything
+                for p in loaded_model.parameters():
+                    p.requires_grad = True
+                print("🔓 Fine-tuning all layers")
 
             model = loaded_model
     else:
-        print(f"⚠️  No checkpoint at {args.checkpoint_path} - starting from scratch")
-            
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"⚠️  No checkpoint - scratch | params={total_params:,}")
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
@@ -255,7 +295,9 @@ def main() -> None:
         # Save only when val loss improves
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            best_path = str(Path(args.model_dir) / f"{Path(args.dataset_dir).name}_best_model.pth")
+            best_path = str(
+                Path(args.model_dir) / f"{Path(args.dataset_dir).name}_best_model.pth"
+            )
             save_model(model, optimizer, epoch, val_loss, checkpoint_path=best_path)
             print(f"  ⭐ Best model updated (val_loss={val_loss:.4f})")
 

@@ -119,6 +119,57 @@ class AHARDataset(Dataset):
         return video, label
 
 
+class CachedAHARDataset(AHARDataset):
+    """
+    Decodes all videos into RAM on init. After that __getitem__ is instant.
+    Use for small datasets (≤2000 clips) where RAM allows.
+    350 clips × 32 frames × 64×64 ≈ 1.7 GB - fine for Colab A100 (83 GB).
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        print(f"📥 Caching {len(self.samples)} videos into RAM...")
+        self._cache: list[tuple[torch.Tensor, int]] = []
+        for i in range(len(self.samples)):
+            # Call parent __getitem__ which does decode + resize + normalise
+            # Store the result WITHOUT transform - transform applied per-access
+            video_path, label = self.samples[i]
+            try:
+                video, fps = read_video_torchvision(video_path)
+            except Exception:
+                video, fps = read_video_torchvision(
+                    self.samples[(i + 1) % len(self.samples)][0]
+                )
+                label = self.samples[(i + 1) % len(self.samples)][1]
+
+            video = self._sample_frames(video, fps)
+            video = video.permute(0, 3, 1, 2)
+            video = F.interpolate(
+                video.float(),
+                size=self.frame_size,
+                mode="bilinear",
+                align_corners=False,
+            ).div(255.0)
+            self._cache.append((video, label))
+
+            if (i + 1) % 50 == 0 or (i + 1) == len(self.samples):
+                print(f"   {i+1}/{len(self.samples)}")
+
+        mem_gb = sum(v.nbytes for v, _ in self._cache) / 1e9
+        print(f"✅ Cached {len(self._cache)} clips - ~{mem_gb:.2f} GB RAM used")
+
+    def __getitem__(self, index: int):
+        video, label = self._cache[index]
+        if self.transform:
+            seed = torch.randint(0, 1_000_000, (1,)).item()
+            frames = []
+            for frame in video:
+                torch.manual_seed(seed)
+                frames.append(self.transform(frame))
+            video = torch.stack(frames)
+        return video, label
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
