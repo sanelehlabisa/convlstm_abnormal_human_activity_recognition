@@ -24,7 +24,6 @@ import torchvision
 
 from .dataset import AHARDataset
 
-
 # ============================================================
 # ConvLSTM2D Cell - replicates Keras ConvLSTM2D behaviour
 # Input:  sequence (B, T, C, H, W)
@@ -139,29 +138,29 @@ class ConvLSTMOriginal(nn.Module):
 
 class ConvLSTMModel(nn.Module):
     """
-    Lightweight variant of paper architecture (~10x fewer params):
-      TimeDistributed Conv2D(4) - ConvLSTM2D(8) - BN
-      - Conv2D(4) - Dropout(0.5) - Flatten - Dense(64) - Dropout(0.5) - Output
-
-    Same interface as ConvLSTMOriginal - drop-in replacement.
+    Ultra-light variant:
+      td_conv: 3->2, convlstm: 2->4, conv_post: 4->2, dense: 32
     """
 
     def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
         super().__init__()
         C, H, W = input_shape
-        self.td_conv = nn.Conv2d(C, 4, 3, padding=1)  # 16 - 4
-        self.convlstm = ConvLSTM2D(4, 8)  # 64 - 8
-        self.bn = nn.BatchNorm2d(8)
-        self.conv_post = nn.Conv2d(8, 4, 3, padding=1)  # 64-16 - 8-4
+        self.td_conv = nn.Conv2d(C, 2, 3, padding=1)
+        self.convlstm = ConvLSTM2D(2, 4)
+        self.bn = nn.BatchNorm2d(4)
+        self.conv_post = nn.Conv2d(4, 2, 3, padding=1)
         self.dropout1 = nn.Dropout(0.5)
         self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(4 * H * W, 64)  # 256 - 64
+        self.fc1 = nn.Linear(2 * H * W, 32)
         self.dropout2 = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(64, num_classes)
+        self.fc2 = nn.Linear(32, num_classes)
+
+        total = sum(p.numel() for p in self.parameters())
+        print(f"🧠 ConvLSTMModel (light) | params={total:,}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C, H, W = x.shape
-        x = F.relu(self.td_conv(x.view(B * T, C, H, W))).view(B, T, 4, H, W)
+        x = F.relu(self.td_conv(x.view(B * T, C, H, W))).view(B, T, 2, H, W)
         x = self.bn(self.convlstm(x))
         x = self.dropout1(F.relu(self.conv_post(x)))
         return self.fc2(self.dropout2(F.relu(self.fc1(self.flatten(x)))))
