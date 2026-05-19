@@ -24,6 +24,8 @@ from torchvision import transforms
 
 from .utils import read_video_torchvision, write_video_torchvision
 
+TARGET_FPS: int = 8
+
 
 class AHARDataset(Dataset):
     """
@@ -73,56 +75,46 @@ class AHARDataset(Dataset):
 
     def _sample_frames(self, video: torch.Tensor, source_fps: float) -> torch.Tensor:
         """
-        Sample exactly sequence_length frames at TARGET_FPS.
-        - Stride is computed from source fps so temporal density is preserved.
-        - Pads with last frame if video is too short.
-        - Clips if video has more frames than needed.
-
-        video shape: (T, H, W, C)
+        Sample sequence_length frames at TARGET_FPS using fixed stride.
+        Pads by repeating last frame (preserves temporal context, not black pixels).
+        video: (T, H, W, C) uint8
         """
         T = video.shape[0]
-
-        # How many source frames correspond to one output frame
-        stride = max(1, round(source_fps / self.TARGET_FPS))
-
-        # Pick frames at fixed stride
+        stride = max(1, round(source_fps / TARGET_FPS))
         indices = list(range(0, T, stride))
 
         if len(indices) >= self.sequence_length:
-            # Clip to sequence_length
             indices = indices[: self.sequence_length]
         else:
-            # Pad by repeating last frame
-            pad = self.sequence_length - len(indices)
-            indices += [indices[-1]] * pad
+            indices += [indices[-1]] * (self.sequence_length - len(indices))
 
-        return video[torch.tensor(indices)]
+        return video[torch.tensor(indices)]  # (sequence_length, H, W, C)
 
     def __getitem__(self, index: int):
         video_path, label = self.samples[index]
-
         try:
             video, fps = read_video_torchvision(video_path)  # (T, H, W, C) uint8
         except Exception:
             return self.__getitem__((index + 1) % len(self))
 
         video = self._sample_frames(video, fps)  # (T, H, W, C)
-        video = video.permute(0, 3, 1, 2)  # keep uint8
 
+        # Permute and resize in one step - keep uint8 until after resize to save memory
+        video = video.permute(0, 3, 1, 2)  # (T, C, H, W)
         video = F.interpolate(
             video.float(), size=self.frame_size, mode="bilinear", align_corners=False
-        ).byte()  # go back to uint8
+        )  # (T, C, H, W) float
+
+        # Normalise before transform so transform receives [0,1] float
+        video = video.div(255.0)
 
         if self.transform:
             seed = torch.randint(0, 1_000_000, (1,)).item()
             frames = []
             for frame in video:
                 torch.manual_seed(seed)
-                frames.append(self.transform(frame))  # expects uint8
+                frames.append(self.transform(frame))
             video = torch.stack(frames)
-
-        # Final normalization
-        video = video.float().div(255.0)
 
         return video, label
 
