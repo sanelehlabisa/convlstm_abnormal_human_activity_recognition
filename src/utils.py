@@ -21,6 +21,72 @@ from mlxtend.plotting import plot_confusion_matrix as mlxt_plot_cm
 from sklearn.metrics import confusion_matrix as sk_cm
 import torchvision
 
+TARGET_FPS: int = 8
+
+
+def save_frames_dataset(
+    dataset_dir: Path,
+    output_dir: Path,
+    sequence_length: int,
+    fps: int = TARGET_FPS,
+) -> None:
+    """
+    Pre-process a video dataset into per-frame PNG images.
+    Output structure mirrors input: output_dir/class/video_stem_fps8/0000.png ...
+    Includes a meta.json per clip with label and frame count.
+
+    Saves clips as videos too for visual inspection.
+    """
+    import torch.nn.functional as F
+    from torchvision.utils import save_image
+
+    SUPPORTED_EXTS = {".mp4", ".avi", ".mov", ".mkv"}
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    videos = [v for v in sorted(dataset_dir.glob("*/*")) if v.suffix.lower() in SUPPORTED_EXTS]
+    print(f"📦 Processing {len(videos)} videos → {output_dir}")
+
+    for i, video_path in enumerate(videos):
+        cls  = video_path.parent.name
+        stem = f"{video_path.stem}_fps{fps}"
+        clip_dir = output_dir / cls / stem
+        clip_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            frames, _, info = torchvision.io.read_video(str(video_path), pts_unit="sec", output_format="TCHW")
+            source_fps = info.get("video_fps", 30.0)
+        except Exception as e:
+            print(f"  ⚠️  Skipped {video_path.name}: {e}")
+            continue
+
+        # Sample frames at target fps
+        T      = frames.shape[0]
+        stride = max(1, round(source_fps / fps))
+        indices = list(range(0, T, stride))
+        if len(indices) >= sequence_length:
+            indices = indices[:sequence_length]
+        else:
+            indices += [indices[-1]] * (sequence_length - len(indices))
+
+        frames = frames[torch.tensor(indices)]                      # (T, C, H, W) uint8
+
+        # Save each frame as PNG
+        for j, frame in enumerate(frames):
+            save_image(frame.float().div(255.0), str(clip_dir / f"{j:04d}.png"))
+
+        # Save clip as video too (for visual inspection)
+        clip_uint8 = frames.permute(0, 2, 3, 1).cpu()              # (T, H, W, C)
+        torchvision.io.write_video(str(clip_dir / "clip.mp4"), clip_uint8, fps=fps, video_codec="libx264")
+
+        # Save meta
+        import json
+        with open(clip_dir / "meta.json", "w") as f:
+            json.dump({"label": cls, "frames": len(indices), "fps": fps}, f)
+
+        if (i + 1) % 50 == 0 or (i + 1) == len(videos):
+            print(f"   {i+1}/{len(videos)}")
+
+    print(f"✅ Done — preprocessed dataset at {output_dir}")
 
 def plot_training_curves(
     train_losses: list[float],

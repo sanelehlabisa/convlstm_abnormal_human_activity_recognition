@@ -36,8 +36,8 @@ from torch.utils.data import DataLoader, random_split
 
 from tqdm import tqdm
 
-from .dataset import AHARDataset, CachedAHARDataset
-from .model import ConvLSTMModel
+from .dataset import AHARDataset, CachedAHARDataset, FramesAHARDataset
+from .model import ConvLSTMModel, ConvLSTMPooledModel
 from .utils import plot_training_curves, save_model, save_prediction_clips
 
 parser = argparse.ArgumentParser(description="Train ConvLSTM for AHAR")
@@ -122,8 +122,26 @@ def main() -> None:
     torch.backends.cudnn.benchmark = True
     print(f"🖥  Using device: {device}")
 
-    dataset = AHARDataset(
-        args.dataset_dir, args.sequence_length, (args.width, args.height)
+    # ---- Determine dataset class and effective dir ----
+    frames_dir = Path(str(args.dataset_dir) + "_frames")
+    if frames_dir.exists():
+        DatasetClass = FramesAHARDataset
+        effective_dir = str(frames_dir)
+        print(f"⚡ Using pre-processed frames: {frames_dir}")
+    else:
+        # Load lazily first just to get size, then decide cache vs lazy
+        _probe = AHARDataset(
+            args.dataset_dir, args.sequence_length, (args.width, args.height)
+        )
+        DatasetClass = CachedAHARDataset if len(_probe) <= 2000 else AHARDataset
+        effective_dir = args.dataset_dir
+        if DatasetClass is CachedAHARDataset:
+            print("⚡ Small dataset — using RAM cache")
+        del _probe
+
+    # ---- Dataset + splits ----
+    dataset = DatasetClass(
+        effective_dir, args.sequence_length, (args.width, args.height)
     )
     dataset_name = Path(args.dataset_dir).name
     num_classes = dataset.num_classes
@@ -140,7 +158,7 @@ def main() -> None:
     )
     print(f"📊 Train: {n_train} | Val: {n_val} | Test: {n_test}")
 
-    # Augmentation for training only
+    # ---- Augmentation ----
     train_transform = transforms.Compose(
         [
             transforms.RandomHorizontalFlip(p=0.5),
@@ -149,36 +167,30 @@ def main() -> None:
             ),
             transforms.RandomApply([transforms.RandomRotation(10)], p=0.3),
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.2),
-            # transforms.TrivialAugmentWide(),  # strong random single aug on top
         ]
     )
 
-    # Use cached dataset if small enough (decodes once, serves from RAM)
-    DatasetClass = CachedAHARDataset if len(dataset) <= 2000 else AHARDataset
-    if DatasetClass is CachedAHARDataset:
-        print(f"⚡ Small dataset detected - using RAM cache for fast loading")
+    class AugmentSubset(torch.utils.data.Dataset):
+        def __init__(self, subset, transform=None):
+            self.subset = subset
+            self.transform = transform
 
-    # Replace the three dataset constructions
-    dataset = DatasetClass(
-        args.dataset_dir, args.sequence_length, (args.width, args.height)
-    )
-    base_ds = DatasetClass(
-        args.dataset_dir, args.sequence_length, (args.width, args.height)
-    )
-    aug_ds = DatasetClass(
-        args.dataset_dir,
-        args.sequence_length,
-        (args.width, args.height),
-        transform=train_transform,
-    )
+        def __len__(self):
+            return len(self.subset)
+
+        def __getitem__(self, idx):
+            x, y = self.subset[idx]
+            if self.transform is not None:
+                x = torch.stack([self.transform(frame) for frame in x])
+            return x, y
 
     train_indices = train_set.indices
-    clean_subset = torch.utils.data.Subset(base_ds, train_indices)
+    clean_subset = torch.utils.data.Subset(dataset, train_indices)
     aug_subsets = [
-        torch.utils.data.Subset(aug_ds, train_indices) for _ in range(args.aug_copies)
+        AugmentSubset(clean_subset, train_transform) for _ in range(args.aug_copies)
     ]
     combined_train = torch.utils.data.ConcatDataset([clean_subset] + aug_subsets)
-    print(f"📈 Train expanded: {len(train_indices)} - {len(combined_train)} samples")
+    print(f"📈 Train expanded: {len(train_indices)} → {len(combined_train)} samples")
 
     loader_kw = dict(
         batch_size=args.batch_size,
@@ -191,7 +203,9 @@ def main() -> None:
     val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
     test_loader = DataLoader(test_set, shuffle=False, **loader_kw)
 
-    model = ConvLSTMModel(num_classes, input_shape=(3, args.height, args.width)).to(
+    # ---- Model ----
+    # model = ConvLSTMModel(num_classes, input_shape=(3, args.height, args.width)).to(
+    model = ConvLSTMPooledModel(num_classes, input_shape=(3, args.height, args.width)).to(
         device
     )
 
@@ -200,14 +214,13 @@ def main() -> None:
         import zipfile
 
         if not zipfile.is_zipfile(args.checkpoint_path):
-            print(f"❌ Checkpoint corrupted - starting fresh")
+            print(f"❌ Checkpoint corrupted — starting fresh")
         else:
             print(f"⏳ Loading: {args.checkpoint_path}")
             checkpoint = torch.load(
                 args.checkpoint_path, map_location=device, weights_only=True
             )
             ckpt_classes = checkpoint["model_state_dict"]["fc2.weight"].shape[0]
-
             loaded_model = ConvLSTMModel(
                 ckpt_classes, input_shape=(3, args.height, args.width)
             ).to(device)
@@ -217,23 +230,17 @@ def main() -> None:
                 f"✅ Loaded epoch={checkpoint['epoch']} | classes={ckpt_classes} | params={total_params:,}"
             )
 
-            # Replace output layer if dataset has different classes
             if ckpt_classes != num_classes:
                 loaded_model.fc2 = nn.Linear(
                     loaded_model.fc2.in_features, num_classes
                 ).to(device)
-                print(
-                    f"🔁 Output layer replaced: {ckpt_classes} - {num_classes} classes"
-                )
+                print(f"🔁 Output layer: {ckpt_classes} → {num_classes} classes")
 
             if args.resume:
-                # Continue training everything as-is, no freezing
                 for p in loaded_model.parameters():
                     p.requires_grad = True
-                print("▶️  Resuming - all layers trainable")
-
+                print("▶️  Resuming — all layers trainable")
             elif args.finetune_last:
-                # Freeze all except fc2
                 fc2_ids = {id(p) for p in loaded_model.fc2.parameters()}
                 for p in loaded_model.parameters():
                     p.requires_grad = id(p) in fc2_ids
@@ -242,9 +249,7 @@ def main() -> None:
                 )
                 trainable = sum(1 for p in loaded_model.parameters() if p.requires_grad)
                 print(f"🔒 Frozen: {frozen} | 🔓 Trainable (fc2 only): {trainable}")
-
             elif args.finetune_full:
-                # Load weights, unfreeze everything
                 for p in loaded_model.parameters():
                     p.requires_grad = True
                 print("🔓 Fine-tuning all layers")
@@ -252,8 +257,9 @@ def main() -> None:
             model = loaded_model
     else:
         total_params = sum(p.numel() for p in model.parameters())
-        print(f"⚠️  No checkpoint - scratch | params={total_params:,}")
+        print(f"⚠️  No checkpoint — scratch | params={total_params:,}")
 
+    # ---- Training setup ----
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
@@ -289,10 +295,9 @@ def main() -> None:
         train_accs.append(train_acc)
         val_accs.append(val_acc)
         print(
-            f"  Loss -> Train: {train_loss:.4f} Val: {val_loss:.4f} | Acc -> Train: {train_acc:.4f} Val: {val_acc:.4f}"
+            f"  Loss → Train: {train_loss:.4f} Val: {val_loss:.4f} | Acc → Train: {train_acc:.4f} Val: {val_acc:.4f}"
         )
 
-        # Save only when val loss improves
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_path = str(
