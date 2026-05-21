@@ -127,6 +127,80 @@ class ConvLSTMOriginal(nn.Module):
         x = self.dropout1(F.relu(self.conv_post(x)))
         return self.fc2(self.dropout2(F.relu(self.fc1(self.flatten(x)))))
 
+# ============================================================
+# Lightweight pooled ConvLSTM variant
+# Adaptive pooling removes huge flatten bottleneck
+# ~30k params while preserving temporal + spatial learning
+# ============================================================
+
+
+class ConvLSTMPooledModel(nn.Module):
+
+    def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
+        super().__init__()
+
+        C, H, W = input_shape
+
+        self.td_conv = nn.Sequential(
+            nn.Conv2d(C, 8, 3, padding=1),
+            nn.BatchNorm2d(8),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(8, 16, 3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+        )
+
+        self.convlstm = ConvLSTM2D(16, 16)
+
+        self.bn = nn.BatchNorm2d(16)
+
+        self.conv_post = nn.Sequential(
+            nn.Conv2d(16, 16, 3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(16, 8, 3, padding=1),
+            nn.BatchNorm2d(8),
+            nn.ReLU(inplace=True),
+        )
+
+        # 8 x 4 x 4 = 128 features
+        self.pool = nn.AdaptiveAvgPool2d((4, 4))
+
+        self.fc2 = nn.Linear(8 * 4 * 4, num_classes)
+
+        total = sum(p.numel() for p in self.parameters())
+
+        print(f"🧠 ConvLSTMPooledModel | params={total:,}")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+        B, T, C, H, W = x.shape
+
+        # TimeDistributed Conv2D
+        x = self.td_conv(
+            x.view(B * T, C, H, W)
+        ).view(B, T, 16, H, W)
+
+        # ConvLSTM
+        x = self.convlstm(x)
+
+        x = self.bn(x)
+
+        # Post conv
+        x = self.conv_post(x)
+
+        # Adaptive pooling
+        x = self.pool(x)
+
+        # Flatten
+        x = x.view(B, -1)
+
+        # Classifier
+        x = self.fc2(x)
+
+        return x
 
 # ============================================================
 # Lightweight baseline (~6M params at 128x128 - ~10x smaller)
