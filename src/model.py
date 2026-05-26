@@ -182,12 +182,12 @@ class ConvLSTMOriginal(nn.Module):
 
 class ConvLSTMPooledModel(nn.Module):
     """
-    Lightweight ConvLSTM variant using adaptive pooling to reduce parameter count.
+    Lightweight ConvLSTM variant using adaptive pooling and dropout to reduce overfitting.
     """
 
     def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
         """
-        Initializes the pooled model architecture and prints its parameter count.
+        Initializes the pooled model architecture with dropout regularization.
 
         Parameters:
             num_classes (int): Number of output classes for prediction.
@@ -201,35 +201,33 @@ class ConvLSTMPooledModel(nn.Module):
         C, H, W = input_shape
 
         self.td_conv = nn.Sequential(
-            nn.Conv2d(C, 8, 3, padding=1),
-            nn.BatchNorm2d(8),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(8, 16, 3, padding=1),
+            nn.Conv2d(C, 16, 3, padding=1),
             nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
         )
 
-        self.convlstm = ConvLSTM2D(16, 16)
-
-        self.bn = nn.BatchNorm2d(16)
+        self.convlstm = ConvLSTM2D(32, 32)
+        self.bn = nn.BatchNorm2d(32)
 
         self.conv_post = nn.Sequential(
-            nn.Conv2d(16, 16, 3, padding=1),
+            nn.Conv2d(32, 16, 3, padding=1),
             nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(16, 8, 3, padding=1),
-            nn.BatchNorm2d(8),
             nn.ReLU(inplace=True),
         )
 
-        # 8 x 4 x 4 = 128 features
         self.pool = nn.AdaptiveAvgPool2d((4, 4))
-
-        self.fc2 = nn.Linear(8 * 4 * 4, num_classes)
+        
+        self.dropout1 = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(16 * 4 * 4, 64)
+        self.dropout2 = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(64, num_classes)
 
         total = sum(p.numel() for p in self.parameters())
 
-        print(f"🧠 ConvLSTMPooledModel | params={total:,}")
+        print(f"ConvLSTMPooledModel initialized with {total:,} parameters.")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -243,24 +241,16 @@ class ConvLSTMPooledModel(nn.Module):
         """
         B, T, C, H, W = x.shape
 
-        # TimeDistributed Conv2D
-        x = self.td_conv(x.view(B * T, C, H, W)).view(B, T, 16, H, W)
-
-        # ConvLSTM
+        x = self.td_conv(x.view(B * T, C, H, W)).view(B, T, 32, H, W)
         x = self.convlstm(x)
-
         x = self.bn(x)
-
-        # Post conv
         x = self.conv_post(x)
-
-        # Adaptive pooling
         x = self.pool(x)
-
-        # Flatten
+        
         x = x.view(B, -1)
-
-        # Classifier
+        x = self.dropout1(x)
+        x = F.relu(self.fc1(x))
+        x = self.dropout2(x)
         x = self.fc2(x)
 
         return x
