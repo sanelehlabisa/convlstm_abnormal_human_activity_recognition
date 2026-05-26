@@ -179,9 +179,22 @@ def main() -> None:
         [
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
-                [transforms.ColorJitter(0.4, 0.4, 0.3, 0.05)], p=0.6
+                [
+                    transforms.ColorJitter(
+                        brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1
+                    )
+                ],
+                p=0.8,
             ),
-            transforms.RandomApply([transforms.RandomRotation(10)], p=0.3),
+            transforms.RandomApply(
+                [
+                    transforms.RandomAffine(
+                        degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)
+                    )
+                ],
+                p=0.5,
+            ),
+            transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.2),
         ]
     )
@@ -219,7 +232,7 @@ def main() -> None:
 
         def __getitem__(self, idx):
             """
-            Retrieves a transformed sample from the subset.
+            Retrieves a transformed sample from the subset, ensuring temporal consistency.
 
             Parameters:
                 idx (int): The index of the sample to retrieve.
@@ -229,7 +242,13 @@ def main() -> None:
             """
             x, y = self.subset[idx]
             if self.transform is not None:
-                x = torch.stack([self.transform(frame) for frame in x])
+                # This ensures random augmentations (like flips/rotations) are applied identically across all frames in this specific clip.
+                seed = torch.randint(0, 2147483647, (1,)).item()
+                augmented_frames = []
+                for frame in x:
+                    torch.manual_seed(seed)
+                    augmented_frames.append(self.transform(frame))
+                x = torch.stack(augmented_frames)
             return x, y
 
     train_indices = train_set.indices
