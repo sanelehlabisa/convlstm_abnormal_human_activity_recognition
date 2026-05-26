@@ -6,7 +6,7 @@ ConvLSTM model for AHAR. CNN extracts spatial features, LSTM models temporal dyn
 Author: Sanele Hlabisa
 
 python -m src.model \
-    --dataset_dir "datasets/abnormal_activities" \
+    --dataset_dir "datasets/processed/videos_abnormal_activities" \
     --model_dir "models"
 """
 
@@ -24,17 +24,24 @@ import torchvision
 
 from .dataset import AHARDataset
 
-# ============================================================
-# ConvLSTM2D Cell - replicates Keras ConvLSTM2D behaviour
-# Input:  sequence (B, T, C, H, W)
-# Output: last hidden state (B, filters, H, W)
-# ============================================================
-
 
 class ConvLSTM2DCell(nn.Module):
-    """Single ConvLSTM2D cell. Processes one timestep."""
+    """
+    Implements a single ConvLSTM2D cell for processing one timestep.
+    """
 
     def __init__(self, in_channels: int, filters: int, kernel_size: int = 3) -> None:
+        """
+        Initializes the ConvLSTM2D cell with combined gate convolutions.
+
+        Parameters:
+            in_channels (int): Number of channels in the input tensor.
+            filters (int): Number of output filters for the hidden state.
+            kernel_size (int): Size of the convolutional kernel.
+
+        Returns:
+            None
+        """
         super().__init__()
         pad = kernel_size // 2
 
@@ -53,6 +60,17 @@ class ConvLSTM2DCell(nn.Module):
         h: torch.Tensor,  # (B, filters, H, W)
         c: torch.Tensor,  # (B, filters, H, W)
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the next hidden and cell states for the current timestep.
+
+        Parameters:
+            x (torch.Tensor): Input tensor for the current timestep of shape (B, C, H, W).
+            h (torch.Tensor): Previous hidden state tensor of shape (B, filters, H, W).
+            c (torch.Tensor): Previous cell state tensor of shape (B, filters, H, W).
+
+        Returns:
+            states (tuple[torch.Tensor, torch.Tensor]): A tuple containing the new hidden state and new cell state.
+        """
 
         combined = torch.cat([x, h], dim=1)  # (B, C+filters, H, W)
         gates: torch.Tensor = self.conv(combined)  # (B, filters*4, H, W)
@@ -71,17 +89,35 @@ class ConvLSTM2DCell(nn.Module):
 
 
 class ConvLSTM2D(nn.Module):
-    """Runs ConvLSTM2DCell over a sequence, returns last hidden state."""
+    """
+    Applies a ConvLSTM2D cell sequentially over an entire temporal dimension.
+    """
 
     def __init__(self, in_channels: int, filters: int, kernel_size: int = 3) -> None:
+        """
+        Initializes the sequential ConvLSTM module.
+
+        Parameters:
+            in_channels (int): Number of channels in the input frames.
+            filters (int): Number of output filters for the hidden state.
+            kernel_size (int): Size of the convolutional kernel.
+
+        Returns:
+            None
+        """
         super().__init__()
         self.filters = filters
         self.cell = ConvLSTM2DCell(in_channels, filters, kernel_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        x: (B, T, C, H, W)
-        returns: (B, filters, H, W)  - last hidden state only
+        Processes the sequence and returns only the final hidden state.
+
+        Parameters:
+            x (torch.Tensor): Input sequence tensor of shape (B, T, C, H, W).
+
+        Returns:
+            h (torch.Tensor): The final hidden state tensor of shape (B, filters, H, W).
         """
         B, T, C, H, W = x.shape
 
@@ -95,19 +131,26 @@ class ConvLSTM2D(nn.Module):
 
 
 # ============================================================
-# Original paper model (~60M params at 128x128)
-# Renamed so other files importing ConvLSTMModel still work
+# Models
 # ============================================================
 
 
 class ConvLSTMOriginal(nn.Module):
     """
-    Paper architecture:
-      TimeDistributed Conv2D(16) - ConvLSTM2D(64) - BN
-      - Conv2D(16) - Dropout(0.5) - Flatten - Dense(256) - Dropout(0.5) - Output
+    Original heavy ConvLSTM architecture for abnormal activity recognition.
     """
 
     def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
+        """
+        Initializes the large baseline model and prints its parameter count.
+
+        Parameters:
+            num_classes (int): Number of output classes for prediction.
+            input_shape (tuple[int, int, int]): Shape of the single input frame (C, H, W).
+
+        Returns:
+            None
+        """
         super().__init__()
         C, H, W = input_shape
         self.td_conv = nn.Conv2d(C, 16, 3, padding=1)
@@ -121,22 +164,38 @@ class ConvLSTMOriginal(nn.Module):
         self.fc2 = nn.Linear(256, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the forward pass returning raw class logits.
+
+        Parameters:
+            x (torch.Tensor): Input video tensor of shape (B, T, C, H, W).
+
+        Returns:
+            logits (torch.Tensor): Unnormalized class prediction logits of shape (B, num_classes).
+        """
         B, T, C, H, W = x.shape
         x = F.relu(self.td_conv(x.view(B * T, C, H, W))).view(B, T, 16, H, W)
         x = self.bn(self.convlstm(x))
         x = self.dropout1(F.relu(self.conv_post(x)))
         return self.fc2(self.dropout2(F.relu(self.fc1(self.flatten(x)))))
 
-# ============================================================
-# Lightweight pooled ConvLSTM variant
-# Adaptive pooling removes huge flatten bottleneck
-# ~30k params while preserving temporal + spatial learning
-# ============================================================
-
 
 class ConvLSTMPooledModel(nn.Module):
+    """
+    Lightweight ConvLSTM variant using adaptive pooling to reduce parameter count.
+    """
 
     def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
+        """
+        Initializes the pooled model architecture and prints its parameter count.
+
+        Parameters:
+            num_classes (int): Number of output classes for prediction.
+            input_shape (tuple[int, int, int]): Shape of the single input frame (C, H, W).
+
+        Returns:
+            None
+        """
         super().__init__()
 
         C, H, W = input_shape
@@ -145,7 +204,6 @@ class ConvLSTMPooledModel(nn.Module):
             nn.Conv2d(C, 8, 3, padding=1),
             nn.BatchNorm2d(8),
             nn.ReLU(inplace=True),
-
             nn.Conv2d(8, 16, 3, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
@@ -159,7 +217,6 @@ class ConvLSTMPooledModel(nn.Module):
             nn.Conv2d(16, 16, 3, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
-
             nn.Conv2d(16, 8, 3, padding=1),
             nn.BatchNorm2d(8),
             nn.ReLU(inplace=True),
@@ -175,13 +232,19 @@ class ConvLSTMPooledModel(nn.Module):
         print(f"🧠 ConvLSTMPooledModel | params={total:,}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the forward pass returning raw class logits.
 
+        Parameters:
+            x (torch.Tensor): Input video tensor of shape (B, T, C, H, W).
+
+        Returns:
+            logits (torch.Tensor): Unnormalized class prediction logits of shape (B, num_classes).
+        """
         B, T, C, H, W = x.shape
 
         # TimeDistributed Conv2D
-        x = self.td_conv(
-            x.view(B * T, C, H, W)
-        ).view(B, T, 16, H, W)
+        x = self.td_conv(x.view(B * T, C, H, W)).view(B, T, 16, H, W)
 
         # ConvLSTM
         x = self.convlstm(x)
@@ -202,21 +265,23 @@ class ConvLSTMPooledModel(nn.Module):
 
         return x
 
-# ============================================================
-# Lightweight baseline (~6M params at 128x128 - ~10x smaller)
-# Filters: 16-64-16  becomes  4-8-4
-# Dense:   256        becomes  64
-# This is ConvLSTMModel so all other files need zero changes
-# ============================================================
-
 
 class ConvLSTMModel(nn.Module):
     """
-    Ultra-light variant:
-      td_conv: 3->2, convlstm: 2->4, conv_post: 4->2, dense: 32
+    Ultra-lightweight ConvLSTM variant with reduced filter sizes.
     """
 
     def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
+        """
+        Initializes the lightweight model architecture and prints its parameter count.
+
+        Parameters:
+            num_classes (int): Number of output classes for prediction.
+            input_shape (tuple[int, int, int]): Shape of the single input frame (C, H, W).
+
+        Returns:
+            None
+        """
         super().__init__()
         C, H, W = input_shape
         self.td_conv = nn.Conv2d(C, 2, 3, padding=1)
@@ -233,6 +298,15 @@ class ConvLSTMModel(nn.Module):
         print(f"🧠 ConvLSTMModel (light) | params={total:,}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the forward pass returning raw class logits.
+
+        Parameters:
+            x (torch.Tensor): Input video tensor of shape (B, T, C, H, W).
+
+        Returns:
+            logits (torch.Tensor): Unnormalized class prediction logits of shape (B, num_classes).
+        """
         B, T, C, H, W = x.shape
         x = F.relu(self.td_conv(x.view(B * T, C, H, W))).view(B, T, 2, H, W)
         x = self.bn(self.convlstm(x))
@@ -240,9 +314,62 @@ class ConvLSTMModel(nn.Module):
         return self.fc2(self.dropout2(F.relu(self.fc1(self.flatten(x)))))
 
 
-# ============================================================
-# Sanity check
-# ============================================================
+class ConvLSTMCustom(nn.Module):
+    """
+    Customizable ConvLSTM architecture parameterized by a list of filter sizes.
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        input_shape: tuple = (3, 64, 64),
+        filters: list[int] = [16, 64, 16, 256],
+    ) -> None:
+        """
+        Initializes the custom model using the provided network dimensionalities.
+
+        Parameters:
+            num_classes (int): Number of output classes for prediction.
+            input_shape (tuple[int, int, int]): Shape of the single input frame (C, H, W).
+            filters (list[int]): Four integers representing sizes for [td_conv, convlstm, conv_post, fc1].
+
+        Returns:
+            None
+        """
+        super().__init__()
+        C, H, W = input_shape
+        f_td, f_lstm, f_post, f_fc = filters
+
+        self.td_conv = nn.Conv2d(C, f_td, 3, padding=1)
+        self.convlstm = ConvLSTM2D(f_td, f_lstm)
+        self.bn = nn.BatchNorm2d(f_lstm)
+        self.conv_post = nn.Conv2d(f_lstm, f_post, 3, padding=1)
+        self.dropout1 = nn.Dropout(0.5)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(f_post * H * W, f_fc)
+        self.dropout2 = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(f_fc, num_classes)
+
+        self._f_td = f_td  # Save for view reshaping in forward
+
+        total = sum(p.numel() for p in self.parameters())
+        print(f"ConvLSTMCustom initialized with {total:,} parameters.")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the forward pass returning raw class logits.
+
+        Parameters:
+            x (torch.Tensor): Input video tensor of shape (B, T, C, H, W).
+
+        Returns:
+            logits (torch.Tensor): Unnormalized class prediction logits of shape (B, num_classes).
+        """
+        B, T, C, H, W = x.shape
+        x = F.relu(self.td_conv(x.view(B * T, C, H, W))).view(B, T, self._f_td, H, W)
+        x = self.bn(self.convlstm(x))
+        x = self.dropout1(F.relu(self.conv_post(x)))
+        return self.fc2(self.dropout2(F.relu(self.fc1(self.flatten(x)))))
 
 
 def main() -> None:
