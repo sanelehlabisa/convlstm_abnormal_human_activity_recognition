@@ -1,18 +1,11 @@
-"""
-utils.py
-
-Utility functions for AHAR: visualization, training plots, model persistence.
-
-Author: Sanele Hlabisa
-"""
-
 from __future__ import annotations
 
 import json
 import random
+import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import torch
@@ -20,6 +13,9 @@ from mlxtend.evaluate import confusion_matrix as mlxt_cm
 from mlxtend.plotting import plot_confusion_matrix as mlxt_plot_cm
 from sklearn.metrics import confusion_matrix as sk_cm
 import torchvision
+from torchvision.utils import save_image
+
+warnings.filterwarnings("ignore", category=UserWarning, module="torchvision.io")
 
 TARGET_FPS: int = 8
 
@@ -31,36 +27,42 @@ def save_frames_dataset(
     fps: int = TARGET_FPS,
 ) -> None:
     """
-    Pre-process a video dataset into per-frame PNG images.
-    Output structure mirrors input: output_dir/class/video_stem_fps8/0000.png ...
-    Includes a meta.json per clip with label and frame count.
+    Pre-processes a video dataset into directories of per-frame PNG images and metadata.
 
-    Saves clips as videos too for visual inspection.
+    Parameters:
+        dataset_dir (Path): Path to the directory containing the raw video files.
+        output_dir (Path): Path to the destination directory for the extracted frames.
+        sequence_length (int): Number of frames to extract per clip.
+        fps (int): Target frames per second to sample from the source video.
+
+    Returns:
+        None
     """
-    import torch.nn.functional as F
-    from torchvision.utils import save_image
-
     SUPPORTED_EXTS = {".mp4", ".avi", ".mov", ".mkv"}
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    videos = [v for v in sorted(dataset_dir.glob("*/*")) if v.suffix.lower() in SUPPORTED_EXTS]
-    print(f"📦 Processing {len(videos)} videos → {output_dir}")
+    videos = [
+        v for v in sorted(dataset_dir.glob("*/*")) if v.suffix.lower() in SUPPORTED_EXTS
+    ]
+    print(f"📦 Processing {len(videos)} videos to {output_dir}")
 
     for i, video_path in enumerate(videos):
-        cls  = video_path.parent.name
+        cls = video_path.parent.name
         stem = f"{video_path.stem}_fps{fps}"
         clip_dir = output_dir / cls / stem
         clip_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            frames, _, info = torchvision.io.read_video(str(video_path), pts_unit="sec", output_format="TCHW")
+            frames, _, info = torchvision.io.read_video(
+                str(video_path), pts_unit="sec", output_format="TCHW"
+            )
             source_fps = info.get("video_fps", 30.0)
         except Exception as e:
             print(f"  ⚠️  Skipped {video_path.name}: {e}")
             continue
 
         # Sample frames at target fps
-        T      = frames.shape[0]
+        T = frames.shape[0]
         stride = max(1, round(source_fps / fps))
         indices = list(range(0, T, stride))
         if len(indices) >= sequence_length:
@@ -68,25 +70,26 @@ def save_frames_dataset(
         else:
             indices += [indices[-1]] * (sequence_length - len(indices))
 
-        frames = frames[torch.tensor(indices)]                      # (T, C, H, W) uint8
+        frames = frames[torch.tensor(indices)]  # (T, C, H, W) uint8
 
-        # Save each frame as PNG
         for j, frame in enumerate(frames):
             save_image(frame.float().div(255.0), str(clip_dir / f"{j:04d}.png"))
 
         # Save clip as video too (for visual inspection)
-        clip_uint8 = frames.permute(0, 2, 3, 1).cpu()              # (T, H, W, C)
-        torchvision.io.write_video(str(clip_dir / "clip.mp4"), clip_uint8, fps=fps, video_codec="libx264")
+        clip_uint8 = frames.permute(0, 2, 3, 1).cpu()  # (T, H, W, C)
+        torchvision.io.write_video(
+            str(clip_dir / "clip.mp4"), clip_uint8, fps=fps, video_codec="libx264"
+        )
 
-        # Save meta
-        import json
+        # Save metadata
         with open(clip_dir / "meta.json", "w") as f:
             json.dump({"label": cls, "frames": len(indices), "fps": fps}, f)
 
         if (i + 1) % 50 == 0 or (i + 1) == len(videos):
             print(f"   {i+1}/{len(videos)}")
 
-    print(f"✅ Done — preprocessed dataset at {output_dir}")
+    print(f"✅ Done - preprocessed dataset at {output_dir}")
+
 
 def plot_training_curves(
     train_losses: list[float],
@@ -97,7 +100,21 @@ def plot_training_curves(
     save_dir: str = "outputs",
     show: bool = False,
 ) -> str:
-    """Plot and save loss + accuracy curves. Returns save path."""
+    """
+    Plots and saves training and validation loss and accuracy curves over epochs.
+
+    Parameters:
+        train_losses (list[float]): List of training loss values per epoch.
+        val_losses (list[float]): List of validation loss values per epoch.
+        train_accs (list[float]): List of training accuracy values per epoch.
+        val_accs (list[float]): List of validation accuracy values per epoch.
+        dataset_name (str): Identifier used to name the output file.
+        save_dir (str): Directory path where the plot image will be saved.
+        show (bool): If true, displays the plot interactively instead of closing it.
+
+    Returns:
+        save_path (str): The absolute file path to the saved plot image.
+    """
     epochs = range(1, len(train_losses) + 1)
 
     plt.figure(figsize=(12, 4))
@@ -125,7 +142,7 @@ def plot_training_curves(
     curve_dir.mkdir(parents=True, exist_ok=True)
     save_path = str(curve_dir / f"training_curves_{dataset_name}_{ts}.png")
     plt.savefig(save_path, dpi=150)
-    print(f"📊 Saved training curves -> {save_path}")
+    print(f"Saved training curves to {save_path}")
 
     if show:
         plt.show()
@@ -143,7 +160,20 @@ def plot_confusion_matrix(
     save_path: Optional[str] = None,
     show: bool = False,
 ) -> None:
-    """Plot and save confusion matrix. Falls back to sklearn if mlxtend shape mismatch."""
+    """
+    Generates and saves a confusion matrix visualization from model predictions.
+
+    Parameters:
+        y_true (list[int]): Ground truth class indices.
+        y_pred (list[int]): Predicted class indices.
+        class_names (list[str]): String labels for the classes.
+        dataset_name (str): Identifier used for the plot title and filename.
+        save_path (Optional[str]): Target file path to save the generated image.
+        show (bool): If true, displays the plot interactively.
+
+    Returns:
+        None
+    """
     cm = mlxt_cm(y_target=y_true, y_predicted=y_pred, binary=False, positive_label=1)
     if cm.shape[0] != len(class_names):
         cm = sk_cm(y_true, y_pred, labels=list(range(len(class_names))))
@@ -162,7 +192,7 @@ def plot_confusion_matrix(
         p = Path(save_path)
         final_path = str(p.parent / f"{p.stem}_{dataset_name}{p.suffix}")
         plt.savefig(final_path, dpi=150)
-        print(f"📊 Saved confusion matrix -> {final_path}")
+        print(f"📊 Saved confusion matrix to {final_path}")
 
     if show:
         plt.show()
@@ -178,7 +208,20 @@ def save_model(
     checkpoint_path: str,  # full path e.g. "models/checkpoint.pth"
     extra_meta: Optional[dict] = None,
 ) -> None:
-    """Save model checkpoint to an explicit full path."""
+    """
+    Saves model weights, optimizer state, and training metadata to a checkpoint file.
+
+    Parameters:
+        model (torch.nn.Module): The neural network model to save.
+        optimizer (torch.optim.Optimizer): The optimizer object to save state for resuming.
+        epoch (int): The current training epoch number.
+        loss (float): The current validation loss score.
+        checkpoint_path (str): The full path to save the .pth checkpoint file.
+        extra_meta (Optional[dict]): Additional metadata to save into the adjacent meta.json.
+
+    Returns:
+        None
+    """
     ckpt_path = Path(checkpoint_path)
     ckpt_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -203,16 +246,27 @@ def save_model(
     with open(ckpt_path.parent / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)
 
-    print(f"✅ Saved checkpoint -> {ckpt_path}")
+    print(f"✅ Saved checkpoint to {ckpt_path}")
 
 
 def load_model(
     model: torch.nn.Module,
     optimizer: Optional[torch.optim.Optimizer] = None,
     checkpoint_path: str = "models/best_model.pth",
-    map_location: str = "cpu",
+    map_location: Union[str, torch.device] = "cpu",
 ) -> tuple[torch.nn.Module, Optional[torch.optim.Optimizer], int, float]:
-    """Load best_model.pth from base_path if available."""
+    """
+    Loads model weights and optimizer states from a checkpoint file if it exists.
+
+    Parameters:
+        model (torch.nn.Module): The initialized model architecture to populate.
+        optimizer (Optional[torch.optim.Optimizer]): The optimizer to populate state variables.
+        checkpoint_path (str): The path to the saved .pth checkpoint.
+        map_location (Union[str, torch.device]): The device to load the tensors onto.
+
+    Returns:
+        state (tuple[torch.nn.Module, Optional[torch.nn.Optimizer], int, float]): A tuple containing the populated model, optimizer, epoch, and loss.
+    """
     ckpt = Path(checkpoint_path)
     if not ckpt.exists():
         print("⚠️  No checkpoint found - starting from scratch.")
@@ -231,8 +285,13 @@ def load_model(
 
 def read_video_torchvision(path: Path) -> tuple[torch.Tensor, float]:
     """
-    Read video using torchvision (PyAV backend - handles more codecs cleanly).
-    Returns: frames (T, H, W, C) uint8, and fps float.
+    Reads a video file using the PyAV backend and formats it for the model pipeline.
+
+    Parameters:
+        path (Path): Path to the source video file.
+
+    Returns:
+        video_data (tuple): A tuple containing the video tensor (T, H, W, C) and frames per second.
     """
     video, _, info = torchvision.io.read_video(
         str(path), pts_unit="sec", output_format="TCHW"
@@ -245,11 +304,16 @@ def read_video_torchvision(path: Path) -> tuple[torch.Tensor, float]:
 
 def write_video_torchvision(frames: torch.Tensor, path: Path, fps: int = 8) -> None:
     """
-    Write video using torchvision.
-    frames: (T, C, H, W) float [0, 1]
-    Produces mp4 that plays in all standard players.
+    Encodes and writes a sequence of float tensors to an MP4 video file.
+
+    Parameters:
+        frames (torch.Tensor): The video frames tensor of shape (T, C, H, W) normalized [0, 1].
+        path (Path): The destination file path for the MP4.
+        fps (int): The frame rate for the encoded video.
+
+    Returns:
+        None
     """
-    # torchvision.io.write_video expects (T, H, W, C) uint8
     clip = (frames * 255).byte().permute(0, 2, 3, 1).cpu()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,14 +322,28 @@ def write_video_torchvision(frames: torch.Tensor, path: Path, fps: int = 8) -> N
 
 def save_prediction_clips(
     model: torch.nn.Module,
-    dataset,
+    dataset: torch.utils.data.Dataset,
     class_names: list[str],
     device: torch.device,
     exp_dir: Path,
     num_samples: int = 8,
     fps: int = 8,
 ) -> list[dict]:
-    """Save random sample clips into exp_dir/correct/ and exp_dir/wrong/."""
+    """
+    Runs inference on random samples and saves the clips sorted into correct/wrong directories.
+
+    Parameters:
+        model (torch.nn.Module): The trained model to generate predictions.
+        dataset (torch.utils.data.Dataset): The dataset object to sample clips from.
+        class_names (list[str]): List of string class labels.
+        device (torch.device): The hardware device running inference.
+        exp_dir (Path): The root output directory for saving the sorted clips.
+        num_samples (int): The number of random samples to process.
+        fps (int): The frame rate to encode the output MP4s.
+
+    Returns:
+        results (list[dict]): A list of dictionaries tracking each clip's paths and prediction status.
+    """
     (exp_dir / "correct").mkdir(exist_ok=True)
     (exp_dir / "wrong").mkdir(exist_ok=True)
 
