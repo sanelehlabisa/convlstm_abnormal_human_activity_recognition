@@ -6,7 +6,7 @@ Evaluation script for AHAR.
 Author: Sanele Hlabisa
 
 python -m src.evaluate \
-    --dataset_dir "datasets/abnormal_activities" \
+    --dataset_dir "datasets/processed/frames_abnormal_activities" \
     --checkpoint_path "models/best_model.pth" \
     --experiments_dir "experiments" \
     --batch_size 32 \
@@ -32,7 +32,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchmetrics
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split
 
 from .dataset import AHARDataset
 from .model import ConvLSTMModel
@@ -54,7 +54,26 @@ parser.add_argument("--num_samples", type=int, default=8)
 
 
 @torch.inference_mode()
-def evaluate(model, loader, criterion, metrics, device):
+def evaluate(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    criterion: torch.nn.Module,
+    metrics: dict,
+    device: torch.device,
+):
+    """
+    Evaluates the model performance on a given dataset loader using specified metrics.
+
+    Parameters:
+        model (torch.nn.Module): The trained PyTorch model to evaluate.
+        loader (DataLoader): The DataLoader providing the evaluation data batches.
+        criterion (torch.nn.Module): The loss function used to calculate the error.
+        metrics (dict): A dictionary of TorchMetrics objects to compute.
+        device (torch.device): The hardware device to run inference on.
+
+    Returns:
+        results (dict): A dictionary containing the computed loss and metric scores.
+    """
     model.eval()
     for m in metrics.values():
         m.reset()
@@ -73,7 +92,18 @@ def evaluate(model, loader, criterion, metrics, device):
 
 
 @torch.inference_mode()
-def _collect_preds(model, loader, device):
+def _collect_preds(model: torch.nn.Module, loader: DataLoader, device: torch.device):
+    """
+    Runs inference over a dataloader to collect all true and predicted labels.
+
+    Parameters:
+        model (torch.nn.Module): The trained PyTorch model.
+        loader (DataLoader): The DataLoader providing the evaluation data.
+        device (torch.device): The hardware device to run inference on.
+
+    Returns:
+        labels (tuple): A tuple containing a list of true labels and a list of predicted labels.
+    """
     model.eval()
     all_true, all_pred = [], []
     for X, y in loader:
@@ -86,8 +116,27 @@ def _collect_preds(model, loader, device):
 
 @torch.inference_mode()
 def _save_sample_predictions(
-    model, dataset, class_names, device, num_samples, save_path
+    model: torch.nn.Module,
+    dataset: Dataset,
+    class_names: list[str],
+    device: torch.device,
+    num_samples: int,
+    save_path: str,
 ):
+    """
+    Generates and saves an image grid displaying random sample frames with true and predicted labels.
+
+    Parameters:
+        model (torch.nn.Module): The trained PyTorch model.
+        dataset (Dataset): The dataset object to sample frames from.
+        class_names (list[str]): A list of string class names corresponding to label indices.
+        device (torch.device): The hardware device to run inference on.
+        num_samples (int): The total number of random samples to display in the grid.
+        save_path (str): The file path where the generated image grid will be saved.
+
+    Returns:
+        None: This function does not return any value.
+    """
     model.eval()
     indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
     cols = 4
