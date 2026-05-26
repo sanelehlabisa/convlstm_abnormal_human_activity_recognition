@@ -114,58 +114,6 @@ def _collect_preds(model: torch.nn.Module, loader: DataLoader, device: torch.dev
     return all_true, all_pred
 
 
-@torch.inference_mode()
-def _save_sample_predictions(
-    model: torch.nn.Module,
-    dataset: Dataset,
-    class_names: list[str],
-    device: torch.device,
-    num_samples: int,
-    save_path: str,
-):
-    """
-    Generates and saves an image grid displaying random sample frames with true and predicted labels.
-
-    Parameters:
-        model (torch.nn.Module): The trained PyTorch model.
-        dataset (Dataset): The dataset object to sample frames from.
-        class_names (list[str]): A list of string class names corresponding to label indices.
-        device (torch.device): The hardware device to run inference on.
-        num_samples (int): The total number of random samples to display in the grid.
-        save_path (str): The file path where the generated image grid will be saved.
-
-    Returns:
-        None: This function does not return any value.
-    """
-    model.eval()
-    indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
-    cols = 4
-    rows = math.ceil(num_samples / cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 3, rows * 3.2), squeeze=False)
-
-    for cell_idx, sample_idx in enumerate(indices):
-        ax = axes[cell_idx // cols][cell_idx % cols]
-        frames, true_label = dataset[sample_idx]
-        pred_label = model(frames.unsqueeze(0).to(device)).argmax(dim=1).item()
-        mid = frames.shape[0] // 2
-        frame_np = np.clip(frames[mid].permute(1, 2, 0).cpu().numpy(), 0, 1)
-        ax.imshow(frame_np)
-        ax.axis("off")
-        true_name = class_names[true_label]
-        pred_name = class_names[pred_label]
-        color = "green" if pred_label == true_label else "red"
-        ax.set_title(f"T: {true_name}\nP: {pred_name}", fontsize=8, color=color, pad=3)
-
-    for i in range(len(indices), rows * cols):
-        axes[i // cols][i % cols].axis("off")
-
-    fig.suptitle("Sample Predictions (green=correct, red=wrong)", fontsize=11, y=1.01)
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"🖼  Saved sample predictions → {save_path}")
-
-
 def main() -> None:
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -240,15 +188,6 @@ def main() -> None:
         dataset.class_names,
         dataset_name=dataset_name,
         save_path=cm_path,
-    )
-
-    _save_sample_predictions(
-        model,
-        test_set,
-        dataset.class_names,
-        device,
-        args.num_samples,
-        str(exp_dir / "sample_predictions.png"),
     )
 
     print("\n🎬 Saving prediction clips...")
