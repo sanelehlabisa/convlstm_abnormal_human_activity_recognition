@@ -35,7 +35,7 @@ import torchmetrics
 from torch.utils.data import Dataset, DataLoader, random_split
 
 from .dataset import AHARDataset
-from .model import ConvLSTMModel
+from .model import ConvLSTMModel, ConvLSTMPooledModel
 from .utils import load_model, plot_confusion_matrix, save_prediction_clips
 
 parser = argparse.ArgumentParser(description="Evaluate ConvLSTM for AHAR")
@@ -202,9 +202,9 @@ def main() -> None:
         pin_memory=args.pin_memory,
     )
 
-    model = ConvLSTMModel(num_classes, input_shape=(3, args.height, args.width)).to(
-        device
-    )
+    model = ConvLSTMPooledModel(
+        num_classes, input_shape=(3, args.height, args.width)
+    ).to(device)
     model, _, epoch, ckpt_loss = load_model(
         model, checkpoint_path=args.checkpoint_path, map_location=device
     )
