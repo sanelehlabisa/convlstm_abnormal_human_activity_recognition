@@ -8,7 +8,7 @@ and overfitting gap (train_acc - val_acc). Saves results to JSON.
 Author: Sanele Hlabisa
 
 python -m src.experiments \
-    --dataset_dir "datasets/violence-detection-dataset" \
+    --dataset_dir "datasets/processed/frames_abnormal_activities" \
     --epochs 20 \
     --sequence_length 16 \
     --height 32 \
@@ -33,7 +33,12 @@ from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
 from .dataset import AHARDataset
-from .model import ConvLSTMModel, ConvLSTM2D
+from .model import (
+    ConvLSTMOriginal,
+    ConvLSTMPooledModel,
+    ConvLSTMModel,
+    ConvLSTMCustom,
+)
 
 parser = argparse.ArgumentParser(description="Architecture search for ConvLSTM AHAR")
 parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
@@ -49,77 +54,21 @@ parser.add_argument("--val_ratio", type=float, default=0.1)
 parser.add_argument("--num_workers", type=int, default=2)
 
 
-# Configurable model - extends base arch with variable layers
-
-
-class ConfigurableConvLSTMModel(nn.Module):
-    """
-    Same arch as paper but with configurable:
-      - convlstm_filters: filters in ConvLSTM2D layer
-      - dense_units:      neurons in Dense(256) layer
-      - dropout:          dropout rate at both dropout layers
-      - extra_conv:       whether to add an extra TimeDistributed conv before ConvLSTM
-    """
-
-    def __init__(
-        self,
-        num_classes: int,
-        input_shape: tuple[int, int, int] = (3, 32, 32),
-        convlstm_filters: int = 64,
-        dense_units: int = 256,
-        dropout: float = 0.5,
-        extra_conv: bool = False,
-    ) -> None:
-        super().__init__()
-
-        C, H, W = input_shape
-
-        # TimeDistributed Conv2D(16)
-        self.td_conv = nn.Conv2d(C, 16, kernel_size=3, padding=1)
-        self.extra_conv = None
-
-        td_out_channels = 16
-        if extra_conv:
-            self.extra_conv = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-            td_out_channels = 32
-
-        # ConvLSTM2D
-        self.convlstm = ConvLSTM2D(
-            in_channels=td_out_channels, filters=convlstm_filters, kernel_size=3
-        )
-
-        # BatchNorm → Conv2D(16) → Dropout → Flatten → Dense → Dropout → Output
-        self.bn = nn.BatchNorm2d(convlstm_filters)
-        self.conv_post = nn.Conv2d(convlstm_filters, 16, kernel_size=3, padding=1)
-        self.dropout1 = nn.Dropout(dropout)
-        self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(16 * H * W, dense_units)
-        self.dropout2 = nn.Dropout(dropout)
-        self.fc2 = nn.Linear(dense_units, num_classes)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, T, C, H, W = x.shape
-
-        x = x.view(B * T, C, H, W)
-        x = torch.relu(self.td_conv(x))
-        if self.extra_conv is not None:
-            x = torch.relu(self.extra_conv(x))
-        x = x.view(B, T, -1, H, W)
-
-        x = self.convlstm(x)
-        x = self.bn(x)
-        x = torch.relu(self.conv_post(x))
-        x = self.dropout1(x)
-        x = self.flatten(x)
-        x = torch.relu(self.fc1(x))
-        x = self.dropout2(x)
-        return self.fc2(x)
-
-
-# Train / validate loops (minimal - no saving)
-
-
 def _train(model, loader, criterion, optimizer, acc_fn, device):
+    """
+    Runs a single training epoch and calculates the average loss and accuracy.
+
+    Parameters:
+        model (torch.nn.Module): The neural network model being trained.
+        loader (DataLoader): The data loader providing batches of training data.
+        criterion (torch.nn.Module): The loss function used to calculate the error.
+        optimizer (torch.optim.Optimizer): The optimizer updating the model weights.
+        acc_fn (torchmetrics.Metric): The function used to calculate accuracy.
+        device (torch.device): The hardware device (CPU or GPU) running the calculations.
+
+    Returns:
+        metrics (tuple): A tuple containing the average loss and average accuracy for the epoch.
+    """
     model.train()
     total_loss = total_acc = 0.0
     for X, y in loader:
@@ -136,6 +85,19 @@ def _train(model, loader, criterion, optimizer, acc_fn, device):
 
 @torch.inference_mode()
 def _validate(model, loader, criterion, acc_fn, device):
+    """
+    Evaluates the model on a validation or test dataset without updating weights.
+
+    Parameters:
+        model (torch.nn.Module): The neural network model being evaluated.
+        loader (DataLoader): The data loader providing batches of evaluation data.
+        criterion (torch.nn.Module): The loss function used to calculate the error.
+        acc_fn (torchmetrics.Metric): The function used to calculate accuracy.
+        device (torch.device): The hardware device (CPU or GPU) running the calculations.
+
+    Returns:
+        metrics (tuple): A tuple containing the average loss and average accuracy.
+    """
     model.eval()
     total_loss = total_acc = 0.0
     for X, y in loader:
@@ -147,37 +109,40 @@ def _validate(model, loader, criterion, acc_fn, device):
     return total_loss / len(loader), total_acc / len(loader)
 
 
-# Overfitting score: average slope of (train_acc - val_acc)
-# Positive and growing = overfitting
-
-
 def _overfit_score(train_accs: list[float], val_accs: list[float]) -> float:
+    """
+    Calculates an overfitting score by analyzing the gap between training and validation accuracy.
+
+    Parameters:
+        train_accs (list[float]): A list of training accuracies over all epochs.
+        val_accs (list[float]): A list of validation accuracies over all epochs.
+
+    Returns:
+        score (float): A positive score indicating the degree of overfitting (higher is worse).
+    """
     gaps = [t - v for t, v in zip(train_accs, val_accs)]
     if len(gaps) < 2:
         return gaps[-1] if gaps else 0.0
-    # Average gradient of the gap - rising gap = overfitting
     gradients = [gaps[i + 1] - gaps[i] for i in range(len(gaps) - 1)]
     return sum(gradients) / len(gradients)
-
-
-# Main
 
 
 def main() -> None:
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.backends.cudnn.benchmark = True
-    print(f"🖥  Device: {device}")
+    print(f"Device: {device}")
 
     results_dir = Path(args.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    # ---- Dataset (shared across all configs) ----
     dataset = AHARDataset(
         args.dataset_dir, args.sequence_length, (args.width, args.height)
     )
     num_classes = dataset.num_classes
-    print(f"📦 {len(dataset)} samples | {num_classes} classes: {dataset.class_names}")
+    print(
+        f"Loaded {len(dataset)} samples | {num_classes} classes: {dataset.class_names}"
+    )
 
     n_total = len(dataset)
     n_train = int(args.train_ratio * n_total)
@@ -189,7 +154,6 @@ def main() -> None:
         generator=torch.Generator().manual_seed(42),
     )
 
-    # Augmented train set
     aug_ds = AHARDataset(
         args.dataset_dir,
         args.sequence_length,
@@ -216,19 +180,22 @@ def main() -> None:
     val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
     test_loader = DataLoader(test_set, shuffle=False, **loader_kw)
 
-    # ---- Search space ----
     search_space = {
-        "convlstm_filters": [4, 8, 16],
-        "dense_units": [16, 32, 64],
-        "dropout": [0.3, 0.5],
-        "extra_conv": [False, True],
-        "optimizer": ["adam", "sgd"],
+        "model_type": [
+            "Original",
+            "Pooled",
+            "Lightweight",
+            "Custom_Base",  # [16, 64, 16, 256]
+            "Custom_Small",  # [8, 32, 8, 128]
+            "Custom_Large",  # [32, 128, 32, 512]
+        ],
+        "optimizer": ["adam", "sgd", "rmsprop"],
         "learning_rate": [1e-3, 1e-4],
     }
 
     configs = list(itertools.product(*search_space.values()))
     keys = list(search_space.keys())
-    print(f"\n🔬 Running {len(configs)} configurations...\n")
+    print(f"\nRunning {len(configs)} configurations...\n")
 
     all_results = []
 
@@ -236,27 +203,42 @@ def main() -> None:
         cfg = dict(zip(keys, values))
         print(f"[{i+1}/{len(configs)}] {cfg}")
 
-        model = ConfigurableConvLSTMModel(
-            num_classes=num_classes,
-            input_shape=(3, args.height, args.width),
-            convlstm_filters=cfg["convlstm_filters"],
-            dense_units=cfg["dense_units"],
-            dropout=cfg["dropout"],
-            extra_conv=cfg["extra_conv"],
-        ).to(device)
+        if cfg["model_type"] == "Original":
+            model = ConvLSTMOriginal(num_classes, (3, args.height, args.width))
+        elif cfg["model_type"] == "Pooled":
+            model = ConvLSTMPooledModel(num_classes, (3, args.height, args.width))
+        elif cfg["model_type"] == "Lightweight":
+            model = ConvLSTMModel(num_classes, (3, args.height, args.width))
+        elif cfg["model_type"] == "Custom_Base":
+            model = ConvLSTMCustom(
+                num_classes, (3, args.height, args.width), filters=[16, 64, 16, 256]
+            )
+        elif cfg["model_type"] == "Custom_Small":
+            model = ConvLSTMCustom(
+                num_classes, (3, args.height, args.width), filters=[8, 32, 8, 128]
+            )
+        elif cfg["model_type"] == "Custom_Large":
+            model = ConvLSTMCustom(
+                num_classes, (3, args.height, args.width), filters=[32, 128, 32, 512]
+            )
 
+        model = model.to(device)
         num_params = sum(p.numel() for p in model.parameters())
 
         if cfg["optimizer"] == "adam":
             opt = optim.Adam(
                 model.parameters(), lr=cfg["learning_rate"], weight_decay=1e-4
             )
-        else:
+        elif cfg["optimizer"] == "sgd":
             opt = optim.SGD(
                 model.parameters(),
                 lr=cfg["learning_rate"],
                 momentum=0.9,
                 weight_decay=1e-4,
+            )
+        elif cfg["optimizer"] == "rmsprop":
+            opt = optim.RMSprop(
+                model.parameters(), lr=cfg["learning_rate"], weight_decay=1e-4
             )
 
         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
@@ -281,7 +263,6 @@ def main() -> None:
         best_val_acc = max(val_accs)
         overfit_score = _overfit_score(train_accs, val_accs)
 
-        # Test accuracy with best val epoch weights (we use final weights as proxy)
         _, test_acc = _validate(model, test_loader, criterion, acc_fn.clone(), device)
 
         result = {
@@ -290,7 +271,7 @@ def main() -> None:
             "best_val_loss": round(best_val_loss, 6),
             "best_val_acc": round(best_val_acc, 4),
             "test_acc": round(test_acc, 4),
-            "overfit_score": round(overfit_score, 4),  # lower = less overfitting
+            "overfit_score": round(overfit_score, 4),
             "train_time_s": round(elapsed, 1),
         }
         all_results.append(result)
@@ -301,16 +282,14 @@ def main() -> None:
             f"params={num_params:,}  time={elapsed:.0f}s"
         )
 
-    # ---- Sort and report ----
-    # Best = highest val_acc among configs with overfit_score < 0.05
     stable = [r for r in all_results if r["overfit_score"] < 0.05]
     ranked = sorted(
         stable if stable else all_results,
         key=lambda r: (-r["best_val_acc"], r["num_params"]),
     )
 
-    print(f"\n🏆 Top 5 configurations (stable + best val acc):")
-    print("─" * 80)
+    print(f"\nTop 5 configurations (stable + best val acc):")
+    print("-" * 80)
     for r in ranked[:5]:
         print(
             f"  val_acc={r['best_val_acc']:.4f}  test_acc={r['test_acc']:.4f}  "
@@ -318,11 +297,10 @@ def main() -> None:
         )
         print(f"    {r['config']}")
 
-    # Save all results
     out_path = results_dir / "grid_search_results.json"
     with open(out_path, "w") as f:
         json.dump({"best": ranked[:5], "all": all_results}, f, indent=2)
-    print(f"\n📄 Full results → {out_path}")
+    print(f"\nFull results saved to {out_path}")
 
 
 if __name__ == "__main__":
