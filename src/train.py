@@ -6,7 +6,7 @@ Training script for ConvLSTM-based Abnormal Human Activity Recognition (AHAR).
 Author: Sanele Hlabisa
 
 python -m src.train \
-    --dataset_dir "datasets/violence-detection-dataset" \
+    --dataset_dir "datasets/processed/videos_abnormal_activities" \
     --model_dir "models" \
     --checkpoint_path "models/best_model.pth" \
     --resume \
@@ -36,7 +36,7 @@ from torch.utils.data import DataLoader, random_split
 
 from tqdm import tqdm
 
-from .dataset import AHARDataset, CachedAHARDataset, FramesAHARDataset
+from .dataset import AHARDataset, CachedAHARDataset
 from .model import ConvLSTMModel, ConvLSTMPooledModel
 from .utils import plot_training_curves, save_model, save_prediction_clips
 
@@ -79,7 +79,20 @@ def train_one_epoch(
     accuracy_fn: torchmetrics.Metric,
     device: torch.device,
 ) -> tuple[float, float]:
+    """
+    Trains the model for a single epoch and returns the average loss and accuracy.
 
+    Parameters:
+        model (nn.Module): The neural network model being trained.
+        loader (DataLoader): The DataLoader providing batches of training data.
+        criterion (nn.Module): The loss function used for optimization.
+        optimizer (optim.Optimizer): The optimizer updating the model weights.
+        accuracy_fn (torchmetrics.Metric): The function used to calculate accuracy.
+        device (torch.device): The hardware device running the calculations.
+
+    Returns:
+        metrics (tuple[float, float]): The average loss and average accuracy for the epoch.
+    """
     model.train()
 
     total_loss = total_acc = 0.0
@@ -103,7 +116,19 @@ def validate_one_epoch(
     accuracy_fn: torchmetrics.Metric,
     device: torch.device,
 ) -> tuple[float, float]:
+    """
+    Evaluates the model on validation or test data for a single epoch.
 
+    Parameters:
+        model (nn.Module): The neural network model being evaluated.
+        loader (DataLoader): The DataLoader providing batches of evaluation data.
+        criterion (nn.Module): The loss function used to calculate the error.
+        accuracy_fn (torchmetrics.Metric): The function used to calculate accuracy.
+        device (torch.device): The hardware device running the calculations.
+
+    Returns:
+        metrics (tuple[float, float]): The average loss and average accuracy for the epoch.
+    """
     model.eval()
 
     total_loss = total_acc = 0.0
@@ -122,30 +147,22 @@ def main() -> None:
     torch.backends.cudnn.benchmark = True
     print(f"🖥  Using device: {device}")
 
-    # ---- Determine dataset class and effective dir ----
-    frames_dir = Path(str(args.dataset_dir) + "_frames")
-    if frames_dir.exists():
-        DatasetClass = FramesAHARDataset
-        effective_dir = str(frames_dir)
-        print(f"⚡ Using pre-processed frames: {frames_dir}")
-    else:
-        # Load lazily first just to get size, then decide cache vs lazy
-        _probe = AHARDataset(
-            args.dataset_dir, args.sequence_length, (args.width, args.height)
-        )
-        DatasetClass = CachedAHARDataset if len(_probe) <= 2000 else AHARDataset
-        effective_dir = args.dataset_dir
-        if DatasetClass is CachedAHARDataset:
-            print("⚡ Small dataset — using RAM cache")
-        del _probe
+    _probe = AHARDataset(
+        args.dataset_dir, args.sequence_length, (args.width, args.height)
+    )
+    DatasetClass = CachedAHARDataset if len(_probe) <= 2000 else AHARDataset
+    effective_dir = args.dataset_dir
+    del _probe
 
-    # ---- Dataset + splits ----
+    if DatasetClass is CachedAHARDataset:
+        print("Small dataset - caching into RAM")
+
     dataset = DatasetClass(
         effective_dir, args.sequence_length, (args.width, args.height)
     )
     dataset_name = Path(args.dataset_dir).name
     num_classes = dataset.num_classes
-    print(f"📦 {len(dataset)} samples | {num_classes} classes")
+    print(f"{len(dataset)} samples | {num_classes} classes")
 
     n_total = len(dataset)
     n_train = int(args.train_ratio * n_total)
@@ -156,9 +173,8 @@ def main() -> None:
         [n_train, n_val, n_test],
         generator=torch.Generator().manual_seed(42),
     )
-    print(f"📊 Train: {n_train} | Val: {n_val} | Test: {n_test}")
+    print(f"Train: {n_train} | Val: {n_val} | Test: {n_test}")
 
-    # ---- Augmentation ----
     train_transform = transforms.Compose(
         [
             transforms.RandomHorizontalFlip(p=0.5),
@@ -171,14 +187,46 @@ def main() -> None:
     )
 
     class AugmentSubset(torch.utils.data.Dataset):
+        """
+        Dataset wrapper that dynamically applies transformations to a specific subset of data.
+        """
+
         def __init__(self, subset, transform=None):
+            """
+            Initializes the augmentation wrapper.
+
+            Parameters:
+                subset (torch.utils.data.Subset): The underlying dataset subset to wrap.
+                transform (Optional[transforms.Compose]): Transformations to apply to the frames.
+
+            Returns:
+                None
+            """
             self.subset = subset
             self.transform = transform
 
         def __len__(self):
+            """
+            Returns the total number of samples in the subset.
+
+            Parameters:
+                None
+
+            Returns:
+                length (int): Total sample count.
+            """
             return len(self.subset)
 
         def __getitem__(self, idx):
+            """
+            Retrieves a transformed sample from the subset.
+
+            Parameters:
+                idx (int): The index of the sample to retrieve.
+
+            Returns:
+                sample (tuple): A tuple containing the transformed video tensor and its label.
+            """
             x, y = self.subset[idx]
             if self.transform is not None:
                 x = torch.stack([self.transform(frame) for frame in x])
@@ -203,13 +251,10 @@ def main() -> None:
     val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
     test_loader = DataLoader(test_set, shuffle=False, **loader_kw)
 
-    # ---- Model ----
-    # model = ConvLSTMModel(num_classes, input_shape=(3, args.height, args.width)).to(
-    model = ConvLSTMPooledModel(num_classes, input_shape=(3, args.height, args.width)).to(
-        device
-    )
+    model = ConvLSTMPooledModel(
+        num_classes, input_shape=(3, args.height, args.width)
+    ).to(device)
 
-    # ---- Checkpoint loading ----
     if args.checkpoint_path and Path(args.checkpoint_path).is_file():
         import zipfile
 
@@ -257,9 +302,8 @@ def main() -> None:
             model = loaded_model
     else:
         total_params = sum(p.numel() for p in model.parameters())
-        print(f"⚠️  No checkpoint — scratch | params={total_params:,}")
+        print(f"⚠️  No checkpoint - scratch | params={total_params:,}")
 
-    # ---- Training setup ----
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
