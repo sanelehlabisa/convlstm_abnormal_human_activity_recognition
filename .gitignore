@@ -209,23 +209,22 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Dataset
-dataset/
-
-dataset*/
-
-# Model checkpoints
-models/
-checkpoints/
-
-# Experiments
-experiments/*/*.png
-experiments/*/*/*.mp4
-experiments/*/*/*.avi
-
 # Datasets
+dataset*/
 datasets/
 
-# Output files
-outputs/*/*.mp4
-outputs/*/*/*.mp4
+# Model checkpoints (keeps curves dir and meta.json)
+models/*.pth
+models/*.pt
+models/*/*.pth
+models/*/*.pt
+checkpoints/
+
+# Video output files
+experiments/**/*.png
+experiments/**/*.mp4
+experiments/**/*.avi
+experiments/**/*.mkv
+outputs/**/*.mp4
+outputs/**/*.avi
+outputs/**/*.mkv
