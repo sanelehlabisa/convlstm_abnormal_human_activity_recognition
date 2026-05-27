@@ -255,6 +255,80 @@ class ConvLSTMPooledModel(nn.Module):
 
         return x
 
+class ConvLSTMPooledModelV1(nn.Module):
+    """
+    Higher-capacity variant of the pooled ConvLSTM with increased filter sizes and neurons.
+    """
+
+    def __init__(self, num_classes: int, input_shape: tuple = (3, 64, 64)) -> None:
+        """
+        Initializes the higher-capacity pooled model architecture.
+
+        Parameters:
+            num_classes (int): Number of output classes for prediction.
+            input_shape (tuple[int, int, int]): Shape of the single input frame (C, H, W).
+
+        Returns:
+            None
+        """
+        super().__init__()
+
+        C, H, W = input_shape
+
+        self.td_conv = nn.Sequential(
+            nn.Conv2d(C, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
+
+        self.convlstm = ConvLSTM2D(64, 64)
+        self.bn = nn.BatchNorm2d(64)
+
+        self.conv_post = nn.Sequential(
+            nn.Conv2d(64, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+        )
+
+        self.pool = nn.AdaptiveAvgPool2d((4, 4))
+        
+        self.dropout1 = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(32 * 4 * 4, 128)
+        self.dropout2 = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(128, num_classes)
+
+        total = sum(p.numel() for p in self.parameters())
+
+        print(f"ConvLSTMPooledModelV1 initialized with {total:,} parameters.")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the forward pass returning raw class logits.
+
+        Parameters:
+            x (torch.Tensor): Input video tensor of shape (B, T, C, H, W).
+
+        Returns:
+            logits (torch.Tensor): Unnormalized class prediction logits of shape (B, num_classes).
+        """
+        B, T, C, H, W = x.shape
+
+        x = self.td_conv(x.view(B * T, C, H, W)).view(B, T, 64, H, W)
+        x = self.convlstm(x)
+        x = self.bn(x)
+        x = self.conv_post(x)
+        x = self.pool(x)
+        
+        x = x.view(B, -1)
+        x = self.dropout1(x)
+        x = F.relu(self.fc1(x))
+        x = self.dropout2(x)
+        x = self.fc2(x)
+
+        return x
 
 class ConvLSTMModel(nn.Module):
     """

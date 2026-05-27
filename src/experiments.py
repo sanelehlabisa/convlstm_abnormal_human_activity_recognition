@@ -34,8 +34,8 @@ from tqdm import tqdm
 
 from .dataset import AHARDataset
 from .model import (
-    ConvLSTMOriginal,
     ConvLSTMPooledModel,
+    ConvLSTMPooledModelV1,
     ConvLSTMModel,
     ConvLSTMCustom,
 )
@@ -182,8 +182,8 @@ def main() -> None:
 
     search_space = {
         "model_type": [
-            "Original",
             "Pooled",
+            "Pooled_V1",
             "Lightweight",
             "Custom_Base",  # [16, 64, 16, 256]
             "Custom_Small",  # [8, 32, 8, 128]
@@ -203,10 +203,10 @@ def main() -> None:
         cfg = dict(zip(keys, values))
         print(f"[{i+1}/{len(configs)}] {cfg}")
 
-        if cfg["model_type"] == "Original":
-            model = ConvLSTMOriginal(num_classes, (3, args.height, args.width))
-        elif cfg["model_type"] == "Pooled":
+        if cfg["model_type"] == "Pooled":
             model = ConvLSTMPooledModel(num_classes, (3, args.height, args.width))
+        elif cfg["model_type"] == "Pooled_V1":
+            model = ConvLSTMPooledModelV1(num_classes, (3, args.height, args.width))
         elif cfg["model_type"] == "Lightweight":
             model = ConvLSTMModel(num_classes, (3, args.height, args.width))
         elif cfg["model_type"] == "Custom_Base":
