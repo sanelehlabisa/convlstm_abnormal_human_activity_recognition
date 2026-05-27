@@ -33,12 +33,7 @@ from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
 from .dataset import AHARDataset
-from .model import (
-    ConvLSTMPooledModel,
-    ConvLSTMPooledModelV1,
-    ConvLSTMModel,
-    ConvLSTMCustom,
-)
+from .model import ConvLSTMCustom
 
 parser = argparse.ArgumentParser(description="Architecture search for ConvLSTM AHAR")
 parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
@@ -154,6 +149,7 @@ def main() -> None:
         generator=torch.Generator().manual_seed(42),
     )
 
+    # Upgraded robust transform pipeline
     aug_ds = AHARDataset(
         args.dataset_dir,
         args.sequence_length,
@@ -161,11 +157,28 @@ def main() -> None:
         transform=transforms.Compose(
             [
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomApply([transforms.ColorJitter(0.3, 0.3, 0.2)], p=0.5),
-                transforms.RandomApply([transforms.RandomRotation(10)], p=0.3),
+                transforms.RandomApply(
+                    [
+                        transforms.ColorJitter(
+                            brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1
+                        )
+                    ],
+                    p=0.8,
+                ),
+                transforms.RandomApply(
+                    [
+                        transforms.RandomAffine(
+                            degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)
+                        )
+                    ],
+                    p=0.5,
+                ),
+                transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
+                transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.2),
             ]
         ),
     )
+
     base_subset = torch.utils.data.Subset(dataset, train_set.indices)
     aug_subsets = [
         torch.utils.data.Subset(aug_ds, train_set.indices)
@@ -180,66 +193,38 @@ def main() -> None:
     val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
     test_loader = DataLoader(test_set, shuffle=False, **loader_kw)
 
-    search_space = {
-        "model_type": [
-            "Pooled",
-            "Pooled_V1",
-            "Lightweight",
-            "Custom_Base",  # [16, 64, 16, 256]
-            "Custom_Small",  # [8, 32, 8, 128]
-            "Custom_Large",  # [32, 128, 32, 512]
-        ],
-        "optimizer": ["adam", "sgd", "rmsprop"],
-        "learning_rate": [1e-3, 1e-4],
+    custom_configs = {
+        "Balanced_Medium": [16, 32, 16, 128],  # ~2.1M params
+        "Balanced_Small": [16, 32, 8, 128],  # ~1.0M params
+        "BigBase_SmallHead": [32, 64, 8, 64],  # ~700k params
+        "SmallBase_BigHead": [8, 16, 16, 128],  # ~2.1M params
+        "Heavy_LSTM": [16, 128, 16, 64],  # ~1.7M params
+        "Heavy_PostConv": [16, 32, 32, 64],  # ~2.1M params
+        "Funnel": [32, 32, 8, 128],  # ~1.0M params
+        "Bottleneck": [32, 64, 4, 256],  # ~1.3M params
     }
 
-    configs = list(itertools.product(*search_space.values()))
-    keys = list(search_space.keys())
-    print(f"\nRunning {len(configs)} configurations...\n")
+    print(f"\nRunning {len(custom_configs)} custom configurations...\n")
 
     all_results = []
 
-    for i, values in enumerate(configs):
-        cfg = dict(zip(keys, values))
-        print(f"[{i+1}/{len(configs)}] {cfg}")
+    for i, (model_name, filters) in enumerate(custom_configs.items()):
+        cfg = {
+            "model_type": model_name,
+            "filters": filters,
+            "optimizer": "adam",
+            "learning_rate": 0.001,
+        }
+        print(f"[{i+1}/{len(custom_configs)}] {cfg}")
 
-        if cfg["model_type"] == "Pooled":
-            model = ConvLSTMPooledModel(num_classes, (3, args.height, args.width))
-        elif cfg["model_type"] == "Pooled_V1":
-            model = ConvLSTMPooledModelV1(num_classes, (3, args.height, args.width))
-        elif cfg["model_type"] == "Lightweight":
-            model = ConvLSTMModel(num_classes, (3, args.height, args.width))
-        elif cfg["model_type"] == "Custom_Base":
-            model = ConvLSTMCustom(
-                num_classes, (3, args.height, args.width), filters=[16, 64, 16, 256]
-            )
-        elif cfg["model_type"] == "Custom_Small":
-            model = ConvLSTMCustom(
-                num_classes, (3, args.height, args.width), filters=[8, 32, 8, 128]
-            )
-        elif cfg["model_type"] == "Custom_Large":
-            model = ConvLSTMCustom(
-                num_classes, (3, args.height, args.width), filters=[32, 128, 32, 512]
-            )
+        model = ConvLSTMCustom(
+            num_classes, (3, args.height, args.width), filters=filters
+        ).to(device)
 
-        model = model.to(device)
         num_params = sum(p.numel() for p in model.parameters())
 
-        if cfg["optimizer"] == "adam":
-            opt = optim.Adam(
-                model.parameters(), lr=cfg["learning_rate"], weight_decay=1e-4
-            )
-        elif cfg["optimizer"] == "sgd":
-            opt = optim.SGD(
-                model.parameters(),
-                lr=cfg["learning_rate"],
-                momentum=0.9,
-                weight_decay=1e-4,
-            )
-        elif cfg["optimizer"] == "rmsprop":
-            opt = optim.RMSprop(
-                model.parameters(), lr=cfg["learning_rate"], weight_decay=1e-4
-            )
+        # Locked to Adam and 0.001
+        opt = optim.Adam(model.parameters(), lr=cfg["learning_rate"], weight_decay=1e-4)
 
         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
