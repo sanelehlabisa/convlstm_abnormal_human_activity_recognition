@@ -1,0 +1,539 @@
+{
+  "best": [
+    {
+      "config": {
+        "model_type": "Pooled",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.001
+      },
+      "num_params": 100338,
+      "best_val_loss": 0.35978,
+      "best_val_acc": 0.8958,
+      "test_acc": 0.6839,
+      "overfit_score": 0.0262,
+      "train_time_s": 97.9
+    },
+    {
+      "config": {
+        "model_type": "Custom_Base",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.0001
+      },
+      "num_params": 1243730,
+      "best_val_loss": 0.386425,
+      "best_val_acc": 0.8958,
+      "test_acc": 0.8839,
+      "overfit_score": 0.023,
+      "train_time_s": 159.0
+    },
+    {
+      "config": {
+        "model_type": "Custom_Base",
+        "optimizer": "adam",
+        "learning_rate": 0.001
+      },
+      "num_params": 1243730,
+      "best_val_loss": 0.454708,
+      "best_val_acc": 0.875,
+      "test_acc": 0.7679,
+      "overfit_score": 0.0302,
+      "train_time_s": 132.3
+    },
+    {
+      "config": {
+        "model_type": "Lightweight",
+        "optimizer": "adam",
+        "learning_rate": 0.001
+      },
+      "num_params": 17500,
+      "best_val_loss": 0.414537,
+      "best_val_acc": 0.8542,
+      "test_acc": 0.8214,
+      "overfit_score": 0.0148,
+      "train_time_s": 62.5
+    },
+    {
+      "config": {
+        "model_type": "Custom_Small",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.001
+      },
+      "num_params": 311338,
+      "best_val_loss": 0.445183,
+      "best_val_acc": 0.8542,
+      "test_acc": 0.7393,
+      "overfit_score": 0.0143,
+      "train_time_s": 84.0
+    }
+  ],
+  "all": [
+    {
+      "config": {
+        "model_type": "Pooled",
+        "optimizer": "adam",
+        "learning_rate": 0.001
+      },
+      "num_params": 100338,
+      "best_val_loss": 0.464525,
+      "best_val_acc": 0.8333,
+      "test_acc": 0.7714,
+      "overfit_score": 0.0224,
+      "train_time_s": 90.7
+    },
+    {
+      "config": {
+        "model_type": "Pooled",
+        "optimizer": "adam",
+        "learning_rate": 0.0001
+      },
+      "num_params": 100338,
+      "best_val_loss": 0.510471,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6893,
+      "overfit_score": 0.0153,
+      "train_time_s": 92.2
+    },
+    {
+      "config": {
+        "model_type": "Pooled",
+        "optimizer": "sgd",
+        "learning_rate": 0.001
+      },
+      "num_params": 100338,
+      "best_val_loss": 0.549656,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6232,
+      "overfit_score": 0.0117,
+      "train_time_s": 89.7
+    },
+    {
+      "config": {
+        "model_type": "Pooled",
+        "optimizer": "sgd",
+        "learning_rate": 0.0001
+      },
+      "num_params": 100338,
+      "best_val_loss": 0.620705,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6232,
+      "overfit_score": -0.0266,
+      "train_time_s": 93.6
+    },
+    {
+      "config": {
+        "model_type": "Pooled",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.001
+      },
+      "num_params": 100338,
+      "best_val_loss": 0.35978,
+      "best_val_acc": 0.8958,
+      "test_acc": 0.6839,
+      "overfit_score": 0.0262,
+      "train_time_s": 97.9
+    },
+    {
+      "config": {
+        "model_type": "Pooled",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.0001
+      },
+      "num_params": 100338,
+      "best_val_loss": 0.507094,
+      "best_val_acc": 0.8125,
+      "test_acc": 0.7393,
+      "overfit_score": 0.0126,
+      "train_time_s": 95.5
+    },
+    {
+      "config": {
+        "model_type": "Pooled_V1",
+        "optimizer": "adam",
+        "learning_rate": 0.001
+      },
+      "num_params": 399330,
+      "best_val_loss": 0.378865,
+      "best_val_acc": 0.8542,
+      "test_acc": 0.7554,
+      "overfit_score": 0.0183,
+      "train_time_s": 187.6
+    },
+    {
+      "config": {
+        "model_type": "Pooled_V1",
+        "optimizer": "adam",
+        "learning_rate": 0.0001
+      },
+      "num_params": 399330,
+      "best_val_loss": 0.472114,
+      "best_val_acc": 0.8333,
+      "test_acc": 0.7518,
+      "overfit_score": 0.0181,
+      "train_time_s": 199.0
+    },
+    {
+      "config": {
+        "model_type": "Pooled_V1",
+        "optimizer": "sgd",
+        "learning_rate": 0.001
+      },
+      "num_params": 399330,
+      "best_val_loss": 0.529299,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6893,
+      "overfit_score": 0.0161,
+      "train_time_s": 200.3
+    },
+    {
+      "config": {
+        "model_type": "Pooled_V1",
+        "optimizer": "sgd",
+        "learning_rate": 0.0001
+      },
+      "num_params": 399330,
+      "best_val_loss": 0.600104,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6232,
+      "overfit_score": 0.0156,
+      "train_time_s": 194.3
+    },
+    {
+      "config": {
+        "model_type": "Pooled_V1",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.001
+      },
+      "num_params": 399330,
+      "best_val_loss": 0.49141,
+      "best_val_acc": 0.8333,
+      "test_acc": 0.6268,
+      "overfit_score": 0.0276,
+      "train_time_s": 196.6
+    },
+    {
+      "config": {
+        "model_type": "Pooled_V1",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.0001
+      },
+      "num_params": 399330,
+      "best_val_loss": 0.460661,
+      "best_val_acc": 0.8333,
+      "test_acc": 0.6429,
+      "overfit_score": 0.0201,
+      "train_time_s": 194.4
+    },
+    {
+      "config": {
+        "model_type": "Lightweight",
+        "optimizer": "adam",
+        "learning_rate": 0.001
+      },
+      "num_params": 17500,
+      "best_val_loss": 0.414537,
+      "best_val_acc": 0.8542,
+      "test_acc": 0.8214,
+      "overfit_score": 0.0148,
+      "train_time_s": 62.5
+    },
+    {
+      "config": {
+        "model_type": "Lightweight",
+        "optimizer": "adam",
+        "learning_rate": 0.0001
+      },
+      "num_params": 17500,
+      "best_val_loss": 0.569077,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6232,
+      "overfit_score": -0.0282,
+      "train_time_s": 62.3
+    },
+    {
+      "config": {
+        "model_type": "Lightweight",
+        "optimizer": "sgd",
+        "learning_rate": 0.001
+      },
+      "num_params": 17500,
+      "best_val_loss": 0.525997,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.7304,
+      "overfit_score": 0.0066,
+      "train_time_s": 62.3
+    },
+    {
+      "config": {
+        "model_type": "Lightweight",
+        "optimizer": "sgd",
+        "learning_rate": 0.0001
+      },
+      "num_params": 17500,
+      "best_val_loss": 0.644925,
+      "best_val_acc": 0.8125,
+      "test_acc": 0.6107,
+      "overfit_score": -0.0233,
+      "train_time_s": 70.8
+    },
+    {
+      "config": {
+        "model_type": "Lightweight",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.001
+      },
+      "num_params": 17500,
+      "best_val_loss": 0.486759,
+      "best_val_acc": 0.8125,
+      "test_acc": 0.8339,
+      "overfit_score": 0.0153,
+      "train_time_s": 71.0
+    },
+    {
+      "config": {
+        "model_type": "Lightweight",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.0001
+      },
+      "num_params": 17500,
+      "best_val_loss": 0.50714,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.7018,
+      "overfit_score": 0.0151,
+      "train_time_s": 64.7
+    },
+    {
+      "config": {
+        "model_type": "Custom_Base",
+        "optimizer": "adam",
+        "learning_rate": 0.001
+      },
+      "num_params": 1243730,
+      "best_val_loss": 0.454708,
+      "best_val_acc": 0.875,
+      "test_acc": 0.7679,
+      "overfit_score": 0.0302,
+      "train_time_s": 132.3
+    },
+    {
+      "config": {
+        "model_type": "Custom_Base",
+        "optimizer": "adam",
+        "learning_rate": 0.0001
+      },
+      "num_params": 1243730,
+      "best_val_loss": 0.435209,
+      "best_val_acc": 0.8125,
+      "test_acc": 0.9125,
+      "overfit_score": 0.0215,
+      "train_time_s": 125.2
+    },
+    {
+      "config": {
+        "model_type": "Custom_Base",
+        "optimizer": "sgd",
+        "learning_rate": 0.001
+      },
+      "num_params": 1243730,
+      "best_val_loss": 0.461946,
+      "best_val_acc": 0.8125,
+      "test_acc": 0.8339,
+      "overfit_score": 0.0201,
+      "train_time_s": 126.4
+    },
+    {
+      "config": {
+        "model_type": "Custom_Base",
+        "optimizer": "sgd",
+        "learning_rate": 0.0001
+      },
+      "num_params": 1243730,
+      "best_val_loss": 0.551656,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6232,
+      "overfit_score": 0.0111,
+      "train_time_s": 131.0
+    },
+    {
+      "config": {
+        "model_type": "Custom_Base",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.001
+      },
+      "num_params": 1243730,
+      "best_val_loss": 0.473916,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6232,
+      "overfit_score": 0.0185,
+      "train_time_s": 153.9
+    },
+    {
+      "config": {
+        "model_type": "Custom_Base",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.0001
+      },
+      "num_params": 1243730,
+      "best_val_loss": 0.386425,
+      "best_val_acc": 0.8958,
+      "test_acc": 0.8839,
+      "overfit_score": 0.023,
+      "train_time_s": 159.0
+    },
+    {
+      "config": {
+        "model_type": "Custom_Small",
+        "optimizer": "adam",
+        "learning_rate": 0.001
+      },
+      "num_params": 311338,
+      "best_val_loss": 0.471793,
+      "best_val_acc": 0.8333,
+      "test_acc": 0.8054,
+      "overfit_score": 0.0236,
+      "train_time_s": 91.5
+    },
+    {
+      "config": {
+        "model_type": "Custom_Small",
+        "optimizer": "adam",
+        "learning_rate": 0.0001
+      },
+      "num_params": 311338,
+      "best_val_loss": 0.468756,
+      "best_val_acc": 0.8125,
+      "test_acc": 0.8339,
+      "overfit_score": -0.0184,
+      "train_time_s": 87.8
+    },
+    {
+      "config": {
+        "model_type": "Custom_Small",
+        "optimizer": "sgd",
+        "learning_rate": 0.001
+      },
+      "num_params": 311338,
+      "best_val_loss": 0.469488,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.8339,
+      "overfit_score": 0.0185,
+      "train_time_s": 86.1
+    },
+    {
+      "config": {
+        "model_type": "Custom_Small",
+        "optimizer": "sgd",
+        "learning_rate": 0.0001
+      },
+      "num_params": 311338,
+      "best_val_loss": 0.542438,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6232,
+      "overfit_score": 0.0044,
+      "train_time_s": 83.2
+    },
+    {
+      "config": {
+        "model_type": "Custom_Small",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.001
+      },
+      "num_params": 311338,
+      "best_val_loss": 0.445183,
+      "best_val_acc": 0.8542,
+      "test_acc": 0.7393,
+      "overfit_score": 0.0143,
+      "train_time_s": 84.0
+    },
+    {
+      "config": {
+        "model_type": "Custom_Small",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.0001
+      },
+      "num_params": 311338,
+      "best_val_loss": 0.457448,
+      "best_val_acc": 0.8125,
+      "test_acc": 0.8214,
+      "overfit_score": -0.0212,
+      "train_time_s": 81.5
+    },
+    {
+      "config": {
+        "model_type": "Custom_Large",
+        "optimizer": "adam",
+        "learning_rate": 0.001
+      },
+      "num_params": 4971682,
+      "best_val_loss": 0.425485,
+      "best_val_acc": 0.8542,
+      "test_acc": 0.8214,
+      "overfit_score": 0.0285,
+      "train_time_s": 349.7
+    },
+    {
+      "config": {
+        "model_type": "Custom_Large",
+        "optimizer": "adam",
+        "learning_rate": 0.0001
+      },
+      "num_params": 4971682,
+      "best_val_loss": 0.438411,
+      "best_val_acc": 0.8333,
+      "test_acc": 0.8589,
+      "overfit_score": 0.0218,
+      "train_time_s": 353.1
+    },
+    {
+      "config": {
+        "model_type": "Custom_Large",
+        "optimizer": "sgd",
+        "learning_rate": 0.001
+      },
+      "num_params": 4971682,
+      "best_val_loss": 0.4784,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.8464,
+      "overfit_score": 0.0208,
+      "train_time_s": 354.3
+    },
+    {
+      "config": {
+        "model_type": "Custom_Large",
+        "optimizer": "sgd",
+        "learning_rate": 0.0001
+      },
+      "num_params": 4971682,
+      "best_val_loss": 0.519502,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6893,
+      "overfit_score": -0.0262,
+      "train_time_s": 357.4
+    },
+    {
+      "config": {
+        "model_type": "Custom_Large",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.001
+      },
+      "num_params": 4971682,
+      "best_val_loss": 0.519945,
+      "best_val_acc": 0.7917,
+      "test_acc": 0.6107,
+      "overfit_score": 0.0215,
+      "train_time_s": 516.0
+    },
+    {
+      "config": {
+        "model_type": "Custom_Large",
+        "optimizer": "rmsprop",
+        "learning_rate": 0.0001
+      },
+      "num_params": 4971682,
+      "best_val_loss": 0.477696,
+      "best_val_acc": 0.8125,
+      "test_acc": 0.8464,
+      "overfit_score": 0.0231,
+      "train_time_s": 406.4
+    }
+  ]
+}

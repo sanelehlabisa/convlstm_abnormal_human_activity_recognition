@@ -1,26 +1,17 @@
 """
 experiments.py
 
-Grid search over model configurations to find best architecture.
+Grid search over custom model configurations to find the best architecture.
 Uses small image size for speed. Reports val loss, test acc, param count,
 and overfitting gap (train_acc - val_acc). Saves results to JSON.
 
 Author: Sanele Hlabisa
-
-python -m src.experiments \
-    --dataset_dir "datasets/processed/frames_abnormal_activities" \
-    --epochs 20 \
-    --sequence_length 16 \
-    --height 32 \
-    --width 32 \
-    --aug_copies 2
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import itertools
 from pathlib import Path
 from timeit import default_timer as timer
 
@@ -38,12 +29,12 @@ from .model import ConvLSTMCustom
 parser = argparse.ArgumentParser(description="Architecture search for ConvLSTM AHAR")
 parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
 parser.add_argument("--results_dir", type=str, default="experiments/grid_search")
-parser.add_argument("--epochs", type=int, default=20)
+parser.add_argument("--epochs", type=int, default=24)
 parser.add_argument("--batch_size", type=int, default=16)
-parser.add_argument("--sequence_length", type=int, default=16)
+parser.add_argument("--sequence_length", type=int, default=32)
 parser.add_argument("--height", type=int, default=32)
 parser.add_argument("--width", type=int, default=32)
-parser.add_argument("--aug_copies", type=int, default=2)
+parser.add_argument("--aug_copies", type=int, default=1)
 parser.add_argument("--train_ratio", type=float, default=0.7)
 parser.add_argument("--val_ratio", type=float, default=0.1)
 parser.add_argument("--num_workers", type=int, default=2)
@@ -107,13 +98,6 @@ def _validate(model, loader, criterion, acc_fn, device):
 def _overfit_score(train_accs: list[float], val_accs: list[float]) -> float:
     """
     Calculates an overfitting score by analyzing the gap between training and validation accuracy.
-
-    Parameters:
-        train_accs (list[float]): A list of training accuracies over all epochs.
-        val_accs (list[float]): A list of validation accuracies over all epochs.
-
-    Returns:
-        score (float): A positive score indicating the degree of overfitting (higher is worse).
     """
     gaps = [t - v for t, v in zip(train_accs, val_accs)]
     if len(gaps) < 2:
@@ -149,7 +133,6 @@ def main() -> None:
         generator=torch.Generator().manual_seed(42),
     )
 
-    # Upgraded robust transform pipeline
     aug_ds = AHARDataset(
         args.dataset_dir,
         args.sequence_length,
@@ -179,15 +162,37 @@ def main() -> None:
         ),
     )
 
+    class AugmentSubset(torch.utils.data.Dataset):
+        """
+        Dataset wrapper that dynamically applies transformations to a specific subset of data.
+        """
+
+        def __init__(self, subset, transform=None):
+            self.subset = subset
+            self.transform = transform
+
+        def __len__(self):
+            return len(self.subset)
+
+        def __getitem__(self, idx):
+            x, y = self.subset[idx]
+            if self.transform is not None:
+                seed = torch.randint(0, 2147483647, (1,)).item()
+                augmented_frames = []
+                for frame in x:
+                    torch.manual_seed(seed)
+                    augmented_frames.append(self.transform(frame))
+                x = torch.stack(augmented_frames)
+            return x, y
+
     base_subset = torch.utils.data.Subset(dataset, train_set.indices)
     aug_subsets = [
-        torch.utils.data.Subset(aug_ds, train_set.indices)
-        for _ in range(args.aug_copies)
+        AugmentSubset(base_subset, aug_ds.transform) for _ in range(args.aug_copies)
     ]
     combined = torch.utils.data.ConcatDataset([base_subset] + aug_subsets)
 
     loader_kw = dict(
-        batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True
+        batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=device != "cpu"
     )
     train_loader = DataLoader(combined, shuffle=True, **loader_kw)
     val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
@@ -198,12 +203,19 @@ def main() -> None:
         "Balanced_Small": [16, 32, 8, 128],  # ~1.0M params
         "BigBase_SmallHead": [32, 64, 8, 64],  # ~700k params
         "SmallBase_BigHead": [8, 16, 16, 128],  # ~2.1M params
-        "Heavy_LSTM": [16, 128, 16, 64],  # ~1.7M params
+        "Heavy_LSTM": [16, 128, 16, 64],  # ~1.7M params (Heavy temporal learning)
         "Heavy_PostConv": [16, 32, 32, 64],  # ~2.1M params
-        "Funnel": [32, 32, 8, 128],  # ~1.0M params
-        "Bottleneck": [32, 64, 4, 256],  # ~1.3M params
+        "Funnel": [32, 32, 8, 128],  # ~1.0M params (Wide early, narrow late)
+        "Bottleneck": [32, 64, 4, 256],  # ~1.3M params (Tiny post_conv, huge dense)
+        "Wide_Mid": [24, 48, 12, 128],  # ~1.5M params
+        "Deep_Temporal": [16, 64, 8, 256],  # ~2.2M params
+        "Mega_LSTM_Tiny_Dense": [16, 256, 4, 32],  # ~2.6M params (Massive temporal focus)
+        "Tiny_LSTM_Mega_Dense": [8, 8, 8, 256],  # ~2.1M params (Massive classification focus)
+        "Ultra_Bottleneck": [32, 64, 2, 512],  # ~1.2M params (Crushes spatial before huge dense)
+        "Diamond": [8, 128, 8, 64],  # ~1.1M params (Narrow start/end, huge LSTM middle)
+        "Heavy_Spatial_Early": [64,32, 8, 128],  # ~1.1M params (Strong feature extraction up front)
+        "Balanced_Large": [32, 64, 16, 128],  # ~2.3M params (Solid overall scale up)
     }
-
     print(f"\nRunning {len(custom_configs)} custom configurations...\n")
 
     all_results = []
@@ -223,9 +235,7 @@ def main() -> None:
 
         num_params = sum(p.numel() for p in model.parameters())
 
-        # Locked to Adam and 0.001
         opt = optim.Adam(model.parameters(), lr=cfg["learning_rate"], weight_decay=1e-4)
-
         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
             device
