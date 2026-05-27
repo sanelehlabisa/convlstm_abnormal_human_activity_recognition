@@ -37,7 +37,7 @@ from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
 from .dataset import AHARDataset, CachedAHARDataset
-from .model import ConvLSTMModel, ConvLSTMPooledModel
+from .model import ConvLSTMModel, ConvLSTMPooledModel, ConvLSTMCustom
 from .utils import plot_training_curves, save_model, save_prediction_clips
 
 parser = argparse.ArgumentParser(description="Train ConvLSTM for AHAR")
@@ -270,24 +270,32 @@ def main() -> None:
     val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
     test_loader = DataLoader(test_set, shuffle=False, **loader_kw)
 
-    model = ConvLSTMPooledModel(
-        num_classes, input_shape=(3, args.height, args.width)
+    # Initialize the winning Bottleneck Custom model
+    custom_filters = [32, 64, 4, 256]
+    # custom_filters = [32, 64, 8, 128]
+    # custom_filters = [64, 32, 8, 128]
+    # custom_filters = [64, 32, 16, 32]
+    model = ConvLSTMCustom(
+        num_classes, input_shape=(3, args.height, args.width), filters=custom_filters
     ).to(device)
 
     if args.checkpoint_path and Path(args.checkpoint_path).is_file():
         import zipfile
 
         if not zipfile.is_zipfile(args.checkpoint_path):
-            print(f"❌ Checkpoint corrupted — starting fresh")
+            print(f"❌ Checkpoint corrupted - starting fresh")
         else:
             print(f"⏳ Loading: {args.checkpoint_path}")
             checkpoint = torch.load(
                 args.checkpoint_path, map_location=device, weights_only=True
             )
             ckpt_classes = checkpoint["model_state_dict"]["fc2.weight"].shape[0]
-            loaded_model = ConvLSTMModel(
-                ckpt_classes, input_shape=(3, args.height, args.width)
+            
+            # Ensure the loaded architecture matches the training architecture
+            loaded_model = ConvLSTMCustom(
+                ckpt_classes, input_shape=(3, args.height, args.width), filters=custom_filters
             ).to(device)
+            
             loaded_model.load_state_dict(checkpoint["model_state_dict"])
             total_params = sum(p.numel() for p in loaded_model.parameters())
             print(
@@ -303,7 +311,7 @@ def main() -> None:
             if args.resume:
                 for p in loaded_model.parameters():
                     p.requires_grad = True
-                print("▶️  Resuming — all layers trainable")
+                print("▶️  Resuming - all layers trainable")
             elif args.finetune_last:
                 fc2_ids = {id(p) for p in loaded_model.fc2.parameters()}
                 for p in loaded_model.parameters():
