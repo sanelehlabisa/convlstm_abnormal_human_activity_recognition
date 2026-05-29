@@ -185,15 +185,9 @@ def main() -> None:
 
     train_transform = transforms.Compose(
         [
+            # Spatial - applied identically to all frames in clip
             transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomApply(
-                [
-                    transforms.ColorJitter(
-                        brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1
-                    )
-                ],
-                p=0.8,
-            ),
+            transforms.RandomVerticalFlip(p=0.1),  # rare vertical flip
             transforms.RandomApply(
                 [
                     transforms.RandomAffine(
@@ -202,8 +196,37 @@ def main() -> None:
                 ],
                 p=0.5,
             ),
+            transforms.RandomApply(
+                [
+                    transforms.RandomResizedCrop(
+                        size=(args.height, args.width),
+                        scale=(0.8, 1.0),
+                        ratio=(0.9, 1.1),
+                    )
+                ],
+                p=0.4,
+            ),
             transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.2),
+            # Colour - simulate different lighting and camera conditions
+            transforms.RandomApply(
+                [
+                    transforms.ColorJitter(
+                        brightness=0.5, contrast=0.5, saturation=0.4, hue=0.1
+                    )
+                ],
+                p=0.8,
+            ),
+            transforms.RandomGrayscale(p=0.1),  # occasionally strip colour
+            transforms.RandomApply(
+                [transforms.RandomAdjustSharpness(sharpness_factor=2)], p=0.3
+            ),
+            # Noise / blur - simulate compression artifacts and camera blur
+            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.3),
+            transforms.RandomApply([transforms.GaussianBlur(kernel_size=5)], p=0.1),
+            # Erase - forces model to use whole frame not single region
+            transforms.RandomErasing(
+                p=0.3, scale=(0.02, 0.15), ratio=(0.3, 3.0), value=0
+            ),
         ]
     )
 
@@ -275,10 +298,16 @@ def main() -> None:
                         for p in loaded_model.parameters():
                             p.requires_grad = id(p) in fc2_ids
 
-                        frozen = sum(1 for p in loaded_model.parameters() if not p.requires_grad)
-                        trainable = sum(1 for p in loaded_model.parameters() if p.requires_grad)
+                        frozen = sum(
+                            1 for p in loaded_model.parameters() if not p.requires_grad
+                        )
+                        trainable = sum(
+                            1 for p in loaded_model.parameters() if p.requires_grad
+                        )
 
-                        print(f"🔒 Frozen: {frozen} | 🔓 Trainable (fc2 only): {trainable}")
+                        print(
+                            f"🔒 Frozen: {frozen} | 🔓 Trainable (fc2 only): {trainable}"
+                        )
 
                 else:
                     for p in loaded_model.parameters():
