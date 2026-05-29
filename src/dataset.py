@@ -314,5 +314,58 @@ def main() -> None:
         print(f"  ✅ {fname}")
 
 
+class AugmentSubset(torch.utils.data.Dataset):
+    """
+    Dataset wrapper that dynamically applies transformations to a specific subset of data.
+    """
+
+    def __init__(self, subset, transform=None):
+        """
+        Initializes the augmentation wrapper.
+
+        Parameters:
+            subset (torch.utils.data.Subset): The underlying dataset subset to wrap.
+            transform (Optional[transforms.Compose]): Transformations to apply to the frames.
+
+        Returns:
+            None
+        """
+        self.subset = subset
+        self.transform = transform
+
+    def __len__(self):
+        """
+        Returns the total number of samples in the subset.
+
+        Parameters:
+            None
+
+        Returns:
+            length (int): Total sample count.
+        """
+        return len(self.subset)
+
+    def __getitem__(self, idx):
+        """
+        Retrieves a transformed sample from the subset, ensuring temporal consistency.
+
+        Parameters:
+            idx (int): The index of the sample to retrieve.
+
+        Returns:
+            sample (tuple): A tuple containing the transformed video tensor and its label.
+        """
+        x, y = self.subset[idx]
+        if self.transform is not None:
+            # This ensures random augmentations (like flips/rotations) are applied identically across all frames in this specific clip.
+            seed = torch.randint(0, 2147483647, (1,)).item()
+            augmented_frames = []
+            for frame in x:
+                torch.manual_seed(seed)
+                augmented_frames.append(self.transform(frame))
+            x = torch.stack(augmented_frames)
+        return x, y
+
+
 if __name__ == "__main__":
     main()
