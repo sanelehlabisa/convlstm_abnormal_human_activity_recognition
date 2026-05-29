@@ -23,7 +23,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
-from .dataset import AHARDataset
+from .dataset import AHARDataset, AugmentSubset
 from .model import ConvLSTMCustom
 
 parser = argparse.ArgumentParser(description="Architecture search for ConvLSTM AHAR")
@@ -161,29 +161,6 @@ def main() -> None:
             ]
         ),
     )
-
-    class AugmentSubset(torch.utils.data.Dataset):
-        """
-        Dataset wrapper that dynamically applies transformations to a specific subset of data.
-        """
-
-        def __init__(self, subset, transform=None):
-            self.subset = subset
-            self.transform = transform
-
-        def __len__(self):
-            return len(self.subset)
-
-        def __getitem__(self, idx):
-            x, y = self.subset[idx]
-            if self.transform is not None:
-                seed = torch.randint(0, 2147483647, (1,)).item()
-                augmented_frames = []
-                for frame in x:
-                    torch.manual_seed(seed)
-                    augmented_frames.append(self.transform(frame))
-                x = torch.stack(augmented_frames)
-            return x, y
 
     base_subset = torch.utils.data.Subset(dataset, train_set.indices)
     aug_subsets = [

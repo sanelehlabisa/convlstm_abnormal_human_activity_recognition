@@ -9,6 +9,7 @@ python -m src.train \
     --dataset_dir "datasets/processed/videos_abnormal_activities" \
     --model_dir "models" \
     --checkpoint_path "models/best_model.pth" \
+    --custom_filters 8 16 16 128 \
     --resume \
     --finetune_full \
     --batch_size 32 \
@@ -36,7 +37,7 @@ from torch.utils.data import DataLoader, random_split
 
 from tqdm import tqdm
 
-from .dataset import AHARDataset, CachedAHARDataset
+from .dataset import AHARDataset, CachedAHARDataset, AugmentSubset
 from .model import ConvLSTMModel, ConvLSTMPooledModel, ConvLSTMCustom
 from .utils import plot_training_curves, save_model, save_prediction_clips
 
@@ -64,6 +65,13 @@ parser.add_argument("--weight_decay", type=float, default=1e-4)
 parser.add_argument("--sequence_length", type=int, default=32)
 parser.add_argument("--width", type=int, default=128)
 parser.add_argument("--height", type=int, default=128)
+parser.add_argument(
+    "--custom_filters",
+    type=int,
+    nargs="+",
+    default=[32, 64, 4, 256],
+    help="List of 4 integers for ConvLSTMCustom: [td_conv, convlstm, conv_post, fc1]",
+)
 parser.add_argument("--aug_copies", type=int, default=4)
 parser.add_argument("--train_ratio", type=float, default=0.7)
 parser.add_argument("--val_ratio", type=float, default=0.1)
@@ -199,58 +207,6 @@ def main() -> None:
         ]
     )
 
-    class AugmentSubset(torch.utils.data.Dataset):
-        """
-        Dataset wrapper that dynamically applies transformations to a specific subset of data.
-        """
-
-        def __init__(self, subset, transform=None):
-            """
-            Initializes the augmentation wrapper.
-
-            Parameters:
-                subset (torch.utils.data.Subset): The underlying dataset subset to wrap.
-                transform (Optional[transforms.Compose]): Transformations to apply to the frames.
-
-            Returns:
-                None
-            """
-            self.subset = subset
-            self.transform = transform
-
-        def __len__(self):
-            """
-            Returns the total number of samples in the subset.
-
-            Parameters:
-                None
-
-            Returns:
-                length (int): Total sample count.
-            """
-            return len(self.subset)
-
-        def __getitem__(self, idx):
-            """
-            Retrieves a transformed sample from the subset, ensuring temporal consistency.
-
-            Parameters:
-                idx (int): The index of the sample to retrieve.
-
-            Returns:
-                sample (tuple): A tuple containing the transformed video tensor and its label.
-            """
-            x, y = self.subset[idx]
-            if self.transform is not None:
-                # This ensures random augmentations (like flips/rotations) are applied identically across all frames in this specific clip.
-                seed = torch.randint(0, 2147483647, (1,)).item()
-                augmented_frames = []
-                for frame in x:
-                    torch.manual_seed(seed)
-                    augmented_frames.append(self.transform(frame))
-                x = torch.stack(augmented_frames)
-            return x, y
-
     train_indices = train_set.indices
     clean_subset = torch.utils.data.Subset(dataset, train_indices)
     aug_subsets = [
@@ -270,63 +226,67 @@ def main() -> None:
     val_loader = DataLoader(val_set, shuffle=False, **loader_kw)
     test_loader = DataLoader(test_set, shuffle=False, **loader_kw)
 
-    # Initialize the winning Bottleneck Custom model
-    custom_filters = [32, 64, 4, 256]
-    # custom_filters = [32, 64, 8, 128]
-    # custom_filters = [64, 32, 8, 128]
-    # custom_filters = [64, 32, 16, 32]
     model = ConvLSTMCustom(
-        num_classes, input_shape=(3, args.height, args.width), filters=custom_filters
+        num_classes,
+        input_shape=(3, args.height, args.width),
+        filters=args.custom_filters,
     ).to(device)
 
     if args.checkpoint_path and Path(args.checkpoint_path).is_file():
         import zipfile
 
         if not zipfile.is_zipfile(args.checkpoint_path):
-            print(f"❌ Checkpoint corrupted - starting fresh")
+            print("❌ Checkpoint corrupted - starting fresh")
         else:
             print(f"⏳ Loading: {args.checkpoint_path}")
             checkpoint = torch.load(
                 args.checkpoint_path, map_location=device, weights_only=True
             )
             ckpt_classes = checkpoint["model_state_dict"]["fc2.weight"].shape[0]
-            
-            # Ensure the loaded architecture matches the training architecture
+
             loaded_model = ConvLSTMCustom(
-                ckpt_classes, input_shape=(3, args.height, args.width), filters=custom_filters
+                ckpt_classes,
+                input_shape=(3, args.height, args.width),
+                filters=args.custom_filters,
             ).to(device)
-            
-            loaded_model.load_state_dict(checkpoint["model_state_dict"])
-            total_params = sum(p.numel() for p in loaded_model.parameters())
-            print(
-                f"✅ Loaded epoch={checkpoint['epoch']} | classes={ckpt_classes} | params={total_params:,}"
-            )
 
-            if ckpt_classes != num_classes:
-                loaded_model.fc2 = nn.Linear(
-                    loaded_model.fc2.in_features, num_classes
-                ).to(device)
-                print(f"🔁 Output layer: {ckpt_classes} → {num_classes} classes")
-
-            if args.resume:
-                for p in loaded_model.parameters():
-                    p.requires_grad = True
-                print("▶️  Resuming - all layers trainable")
-            elif args.finetune_last:
-                fc2_ids = {id(p) for p in loaded_model.fc2.parameters()}
-                for p in loaded_model.parameters():
-                    p.requires_grad = id(p) in fc2_ids
-                frozen = sum(
-                    1 for p in loaded_model.parameters() if not p.requires_grad
+            try:
+                loaded_model.load_state_dict(checkpoint["model_state_dict"])
+                total_params = sum(p.numel() for p in loaded_model.parameters())
+                print(
+                    f"✅ Loaded epoch={checkpoint['epoch']} | classes={ckpt_classes} | params={total_params:,}"
                 )
-                trainable = sum(1 for p in loaded_model.parameters() if p.requires_grad)
-                print(f"🔒 Frozen: {frozen} | 🔓 Trainable (fc2 only): {trainable}")
-            elif args.finetune_full:
-                for p in loaded_model.parameters():
-                    p.requires_grad = True
-                print("🔓 Fine-tuning all layers")
 
-            model = loaded_model
+                if ckpt_classes != num_classes:
+                    loaded_model.fc2 = nn.Linear(
+                        loaded_model.fc2.in_features, num_classes
+                    ).to(device)
+                    print(f"🔁 Output layer: {ckpt_classes} → {num_classes} classes")
+
+                if args.resume:
+                    for p in loaded_model.parameters():
+                        p.requires_grad = True
+                    print("▶️  Resuming - all layers trainable")
+                elif args.finetune_last:
+                    fc2_ids = {id(p) for p in loaded_model.fc2.parameters()}
+                    for p in loaded_model.parameters():
+                        p.requires_grad = id(p) in fc2_ids
+                    frozen = sum(
+                        1 for p in loaded_model.parameters() if not p.requires_grad
+                    )
+                    trainable = sum(
+                        1 for p in loaded_model.parameters() if p.requires_grad
+                    )
+                    print(f"🔒 Frozen: {frozen} | 🔓 Trainable (fc2 only): {trainable}")
+                elif args.finetune_full:
+                    for p in loaded_model.parameters():
+                        p.requires_grad = True
+                    print("🔓 Fine-tuning all layers")
+
+                model = loaded_model
+            except RuntimeError as e:
+                print(f"⚠️  Architecture size mismatch: {e}")
+                print("⚠️  Starting from scratch with new custom_filters sizes.")
     else:
         total_params = sum(p.numel() for p in model.parameters())
         print(f"⚠️  No checkpoint - scratch | params={total_params:,}")
@@ -374,7 +334,14 @@ def main() -> None:
             best_path = str(
                 Path(args.model_dir) / f"{Path(args.dataset_dir).name}_best_model.pth"
             )
-            save_model(model, optimizer, epoch, val_loss, checkpoint_path=best_path)
+            save_model(
+                model,
+                optimizer,
+                epoch,
+                val_loss,
+                checkpoint_path=best_path,
+                extra_meta={"custom_filters": args.custom_filters},
+            )
             print(f"  ⭐ Best model updated (val_loss={val_loss:.4f})")
 
     print(f"\n⏱  Done in {timer() - start:.1f}s")

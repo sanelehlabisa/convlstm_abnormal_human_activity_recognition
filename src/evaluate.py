@@ -8,6 +8,7 @@ Author: Sanele Hlabisa
 python -m src.evaluate \
     --dataset_dir "datasets/processed/frames_abnormal_activities" \
     --checkpoint_path "models/best_model.pth" \
+    --custom_filters 8 16 16 128 \
     --experiments_dir "experiments" \
     --batch_size 32 \
     --sequence_length 32 \
@@ -22,13 +23,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
-import random
 from datetime import datetime
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
 import torch.nn as nn
 import torchmetrics
@@ -40,12 +37,19 @@ from .utils import load_model, plot_confusion_matrix, save_prediction_clips
 
 parser = argparse.ArgumentParser(description="Evaluate ConvLSTM for AHAR")
 parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
-parser.add_argument("--checkpoint_path", type=str, default="models/best_model.pth")
+parser.add_argument("--checkpoint_path", type=str, default=None)
 parser.add_argument("--experiments_dir", type=str, default="experiments")
 parser.add_argument("--batch_size", type=int, default=8)
 parser.add_argument("--sequence_length", type=int, default=32)
 parser.add_argument("--width", type=int, default=128)
 parser.add_argument("--height", type=int, default=128)
+parser.add_argument(
+    "--custom_filters",
+    type=int,
+    nargs="+",
+    default=[32, 64, 4, 256],
+    help="List of 4 integers for ConvLSTMCustom: [td_conv, convlstm, conv_post, fc1]",
+)
 parser.add_argument("--train_ratio", type=float, default=0.7)
 parser.add_argument("--val_ratio", type=float, default=0.1)
 parser.add_argument("--num_workers", type=int, default=0)
@@ -149,20 +153,30 @@ def main() -> None:
         num_workers=args.num_workers,
         pin_memory=args.pin_memory,
     )
-    custom_filters = [32, 64, 4, 256]
-    # custom_filters = [32, 64, 8, 128]
-    # custom_filters = [64, 32, 8, 128]
-    # custom_filters = [64, 32, 16, 32]
+
     model = ConvLSTMCustom(
-        num_classes, input_shape=(3, args.height, args.width), filters=custom_filters
+        num_classes,
+        input_shape=(3, args.height, args.width),
+        filters=args.custom_filters,
     ).to(device)
-    # model = ConvLSTMPooledModel(
-    #     num_classes, input_shape=(3, args.height, args.width)
-    # ).to(device)
-    model, _, epoch, ckpt_loss = load_model(
-        model, checkpoint_path=args.checkpoint_path, map_location=device
-    )
-    print(f"📂 Checkpoint → epoch={epoch}, loss={ckpt_loss:.4f}")
+
+    # Initialize defaults in case checkpoint loading is skipped or fails
+    epoch = 0
+    ckpt_loss = float("inf")
+
+    if args.checkpoint_path and Path(args.checkpoint_path).is_file():
+        try:
+            model, _, epoch, ckpt_loss = load_model(
+                model, checkpoint_path=args.checkpoint_path, map_location=device
+            )
+            print(f"📂 Checkpoint → epoch={epoch}, loss={ckpt_loss:.4f}")
+        except RuntimeError as e:
+            print(f"❌ Architecture mismatch: {e}")
+            print("⚠️ Falling back to default initialized weights.")
+    else:
+        print(
+            "⚠️ No valid checkpoint path provided or found. Using default initialized weights."
+        )
 
     criterion = nn.CrossEntropyLoss()
     metrics = {
@@ -206,7 +220,10 @@ def main() -> None:
         "dataset": dataset_name,
         "dataset_mode": "classification",
         "classes": dataset.class_names,
-        "checkpoint": {"epoch": epoch, "saved_loss": round(ckpt_loss, 6)},
+        "checkpoint": {
+            "epoch": epoch,
+            "saved_loss": round(ckpt_loss, 6) if ckpt_loss != float("inf") else None,
+        },
         "metrics": {k: round(v, 6) for k, v in results.items()},
         "artifacts": {"confusion_matrix": cm_path, "prediction_clips": clip_records},
     }
