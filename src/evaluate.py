@@ -6,12 +6,12 @@ Evaluation script for AHAR.
 Author: Sanele Hlabisa
 
 python -m src.evaluate \
-    --dataset_dir "datasets/processed/frames_abnormal_activities" \
-    --checkpoint_path "models/best_model.pth" \
-    --custom_filters 8 16 16 128 \
+    --dataset_dir "datasets/processed/videos_violence-detection-dataset" \
+    --checkpoint_path "models/violence-detection-dataset_best_model.pth" \
+    --custom_filters 32 64 8 256 \
     --experiments_dir "experiments" \
     --batch_size 32 \
-    --sequence_length 32 \
+    --sequence_length 64 \
     --height 64 \
     --width 64 \
     --num_workers 2 \

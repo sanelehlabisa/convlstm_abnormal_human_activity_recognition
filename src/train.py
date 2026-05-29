@@ -6,15 +6,15 @@ Training script for ConvLSTM-based Abnormal Human Activity Recognition (AHAR).
 Author: Sanele Hlabisa
 
 python -m src.train \
-    --dataset_dir "datasets/processed/videos_abnormal_activities" \
+    --dataset_dir "datasets/processed/videos_violence-detection-dataset" \
     --model_dir "models" \
-    --checkpoint_path "models/best_model.pth" \
-    --custom_filters 8 16 16 128 \
+    --checkpoint_path "models/videos_violence-detection-dataset_best_model.pth" \
+    --custom_filters 32 64 8 256 \
     --resume \
     --finetune_full \
     --batch_size 32 \
     --epochs 64 \
-    --sequence_length 32 \
+    --sequence_length 64 \
     --height 64 \
     --width 64 \
     --aug_copies 4 \
@@ -266,23 +266,25 @@ def main() -> None:
                 if args.resume:
                     for p in loaded_model.parameters():
                         p.requires_grad = True
+
                     print("▶️  Resuming - all layers trainable")
-                elif args.finetune_last:
-                    fc2_ids = {id(p) for p in loaded_model.fc2.parameters()}
-                    for p in loaded_model.parameters():
-                        p.requires_grad = id(p) in fc2_ids
-                    frozen = sum(
-                        1 for p in loaded_model.parameters() if not p.requires_grad
-                    )
-                    trainable = sum(
-                        1 for p in loaded_model.parameters() if p.requires_grad
-                    )
-                    print(f"🔒 Frozen: {frozen} | 🔓 Trainable (fc2 only): {trainable}")
-                elif args.finetune_full:
+
+                    if args.finetune_last:
+                        fc2_ids = {id(p) for p in loaded_model.fc2.parameters()}
+
+                        for p in loaded_model.parameters():
+                            p.requires_grad = id(p) in fc2_ids
+
+                        frozen = sum(1 for p in loaded_model.parameters() if not p.requires_grad)
+                        trainable = sum(1 for p in loaded_model.parameters() if p.requires_grad)
+
+                        print(f"🔒 Frozen: {frozen} | 🔓 Trainable (fc2 only): {trainable}")
+
+                else:
                     for p in loaded_model.parameters():
                         p.requires_grad = True
-                    print("🔓 Fine-tuning all layers")
 
+                    print("🔓 Training all layers")
                 model = loaded_model
             except RuntimeError as e:
                 print(f"⚠️  Architecture size mismatch: {e}")
