@@ -130,13 +130,17 @@ class AHARDataset(Dataset):
             sampled_frames (torch.Tensor): The reduced and padded frame sequence tensor.
         """
         T = frames.shape[0]
-        stride = max(1, round(source_fps / TARGET_FPS))
-        indices = list(range(0, T, stride))
-        if len(indices) >= self.sequence_length:
-            indices = indices[: self.sequence_length]
+
+        if T >= self.sequence_length:
+            # Uniformly sample sequence_length frames across full duration
+            indices = torch.linspace(0, T - 1, self.sequence_length).long()
+            return frames[indices]
         else:
-            indices += [indices[-1]] * (self.sequence_length - len(indices))
-        return frames[torch.tensor(indices)]
+            # Pad by repeating last frame
+            pad = self.sequence_length - T
+            return torch.cat(
+                [frames, frames[-1:].expand(pad, *frames.shape[1:])], dim=0
+            )
 
     def _load_video(self, path: Path) -> torch.Tensor:
         """
@@ -166,22 +170,13 @@ class AHARDataset(Dataset):
         Returns:
             frames_tensor (torch.Tensor): Processed image tensor of shape (T, C, H, W).
         """
-        # Read meta to get original fps
-        meta_path = clip_dir / "meta.json"
-        source_fps = TARGET_FPS
-        if meta_path.exists():
-            with open(meta_path) as f:
-                source_fps = json.load(f).get("fps", TARGET_FPS)
+        all_pngs = sorted(p for p in clip_dir.glob("*.png"))
+        T = len(all_pngs)
 
-        all_pngs = sorted(clip_dir.glob("*.png"))
-        # Apply fps-based stride over available frames
-        total = len(all_pngs)
-        stride = max(1, round(source_fps / TARGET_FPS))
-        indices = list(range(0, total, stride))
-        if len(indices) >= self.sequence_length:
-            indices = indices[: self.sequence_length]
+        if T >= self.sequence_length:
+            indices = torch.linspace(0, T - 1, self.sequence_length).long().tolist()
         else:
-            indices += [indices[-1]] * (self.sequence_length - len(indices))
+            indices = list(range(T)) + [T - 1] * (self.sequence_length - T)
 
         frames = []
         for i in indices:
@@ -195,7 +190,7 @@ class AHARDataset(Dataset):
                 )[0]
             frames.append(img)
 
-        return torch.stack(frames)  # (T, C, H, W)
+        return torch.stack(frames)
 
     def __getitem__(self, index: int):
         """
