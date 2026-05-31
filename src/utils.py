@@ -17,7 +17,7 @@ from torchvision.utils import save_image
 
 warnings.filterwarnings("ignore", category=UserWarning, module="torchvision.io")
 
-TARGET_FPS: int = 8
+TARGET_FPS: int = 16
 
 
 def save_frames_dataset(
