@@ -33,9 +33,11 @@ import torchmetrics
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
+import torchvision.models.video as video_models
 
 from .dataset import AHARDataset, AugmentSubset
 from .model import ConvLSTMOriginal, ConvLSTMModel, ConvLSTMPooledModel, ConvLSTMCustom
+from .utils import plot_confusion_matrix
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset_dir", type=str, default="datasets/abnormal_activities")
@@ -50,6 +52,23 @@ parser.add_argument("--train_ratio", type=float, default=0.7)
 parser.add_argument("--val_ratio", type=float, default=0.1)
 parser.add_argument("--num_workers", type=int, default=2)
 parser.add_argument("--learning_rate", type=float, default=1e-3)
+parser.add_argument("--weight_decay", type=float, default=1e-3)
+
+
+class Video3DModelWrapper(nn.Module):
+    """Wraps PyTorch 3D ResNet models to match our (B, T, C, H, W) input format."""
+
+    def __init__(self, base_model, num_classes):
+        super().__init__()
+        self.model = base_model
+        if hasattr(self.model, "fc"):
+            in_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(in_features, num_classes)
+
+    def forward(self, x):
+        # x is (B, T, C, H, W) -> PyTorch 3D CNNs expect (B, C, T, H, W)
+        x = x.permute(0, 2, 1, 3, 4)
+        return self.model(x)
 
 
 def _train(model, loader, criterion, optimizer, acc_fn, device):
@@ -199,7 +218,6 @@ def main() -> None:
     test_loader = DataLoader(test_set, shuffle=False, **loader_kw)
 
     # ---- Model configs ----
-    # Each entry: (name, model_instance)
     input_shape = (3, args.height, args.width)
 
     configs = [
@@ -207,7 +225,24 @@ def main() -> None:
         ("original", ConvLSTMOriginal(num_classes, input_shape)),
         ("light", ConvLSTMModel(num_classes, input_shape)),
         ("pooled", ConvLSTMPooledModel(num_classes, input_shape)),
-        # Custom configs from experiments
+        # PyTorch 3D ResNet variants
+        (
+            "resnet_3d_18",
+            Video3DModelWrapper(video_models.r3d_18(weights=None), num_classes),
+        ),
+        (
+            "resnet_mc3_18",
+            Video3DModelWrapper(video_models.mc3_18(weights=None), num_classes),
+        ),
+        (
+            "resnet_r2plus1d_18",
+            Video3DModelWrapper(video_models.r2plus1d_18(weights=None), num_classes),
+        ),
+        # Custom configurations (10 total to make 16 models)
+        (
+            "custom_32_64_4_256",
+            ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 4, 256]),
+        ),
         (
             "custom_32_64_8_256",
             ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 8, 256]),
@@ -232,7 +267,6 @@ def main() -> None:
             "custom_32_32_8_64",
             ConvLSTMCustom(num_classes, input_shape, filters=[32, 32, 8, 64]),
         ),
-        # A few extra worth trying
         (
             "custom_16_32_8_128",
             ConvLSTMCustom(num_classes, input_shape, filters=[16, 32, 8, 128]),
@@ -250,12 +284,30 @@ def main() -> None:
     print(f"\nRunning {len(configs)} configurations...\n")
     all_results = []
 
+    # Extra metrics tracker for final evaluation on test_set
+    test_metrics = {
+        "accuracy": torchmetrics.Accuracy(
+            task="multiclass", num_classes=num_classes
+        ).to(device),
+        "precision": torchmetrics.Precision(
+            task="multiclass", num_classes=num_classes, average="macro"
+        ).to(device),
+        "recall": torchmetrics.Recall(
+            task="multiclass", num_classes=num_classes, average="macro"
+        ).to(device),
+        "f1": torchmetrics.F1Score(
+            task="multiclass", num_classes=num_classes, average="macro"
+        ).to(device),
+    }
+
     for i, (name, model) in enumerate(configs):
         model = model.to(device)
         num_params = sum(p.numel() for p in model.parameters())
         print(f"[{i+1}/{len(configs)}] {name} | params={num_params:,}")
 
-        opt = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=1e-3)
+        opt = optim.Adam(
+            model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+        )
         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
             device
@@ -277,26 +329,57 @@ def main() -> None:
         best_val_loss = min(val_losses)
         best_val_acc = max(val_accs)
         overfit = _overfit_score(train_accs, val_accs)
-        _, test_acc = _validate(model, test_loader, criterion, acc_fn.clone(), device)
+
+        # Full test evaluation loop (collecting extra metrics and labels for the confusion matrix)
+        all_true, all_pred = [], []
+        model.eval()
+        for m in test_metrics.values():
+            m.reset()
+
+        with torch.inference_mode():
+            for X, y in test_loader:
+                X, y = X.to(device, non_blocking=True), y.to(device, non_blocking=True)
+                logits = model(X)
+                preds = logits.argmax(dim=1)
+                for m in test_metrics.values():
+                    m(preds, y)
+                all_pred.extend(preds.cpu().tolist())
+                all_true.extend(y.cpu().tolist())
+
+        t_res = {k: m.compute().item() for k, m in test_metrics.items()}
+
+        # Generates confusion matrix per architecture variant!
+        cm_path = str(results_dir / f"cm_{name}.png")
+        plot_confusion_matrix(
+            all_true,
+            all_pred,
+            dataset.class_names,
+            dataset_name=name,
+            save_path=cm_path,
+        )
 
         result = {
             "name": name,
             "num_params": num_params,
             "best_val_loss": round(best_val_loss, 6),
             "best_val_acc": round(best_val_acc, 4),
-            "test_acc": round(test_acc, 4),
+            "test_acc": round(t_res["accuracy"], 4),
+            "test_precision": round(t_res["precision"], 4),
+            "test_recall": round(t_res["recall"], 4),
+            "test_f1": round(t_res["f1"], 4),
             "overfit_score": round(overfit, 4),
             "train_time_s": round(elapsed, 1),
+            "cm_path": cm_path,
         }
         all_results.append(result)
         print(
-            f"  val_acc={best_val_acc:.4f}  test_acc={test_acc:.4f}  "
+            f"  val_acc={best_val_acc:.4f}  test_acc={t_res['accuracy']:.4f}  "
             f"overfit={overfit:+.4f}  time={elapsed:.0f}s"
         )
 
-        # Free GPU memory between runs
         del model
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # ---- Rank and save ----
     stable = [r for r in all_results if r["overfit_score"] < 0.05]
