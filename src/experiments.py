@@ -221,24 +221,7 @@ def main() -> None:
     input_shape = (3, args.height, args.width)
 
     configs = [
-        # Baselines
-        ("original", ConvLSTMOriginal(num_classes, input_shape)),
-        ("light", ConvLSTMModel(num_classes, input_shape)),
-        ("pooled", ConvLSTMPooledModel(num_classes, input_shape)),
-        # PyTorch 3D ResNet variants
-        (
-            "resnet_3d_18",
-            Video3DModelWrapper(video_models.r3d_18(weights=None), num_classes),
-        ),
-        (
-            "resnet_mc3_18",
-            Video3DModelWrapper(video_models.mc3_18(weights=None), num_classes),
-        ),
-        (
-            "resnet_r2plus1d_18",
-            Video3DModelWrapper(video_models.r2plus1d_18(weights=None), num_classes),
-        ),
-        # Custom configurations (10 total to make 16 models)
+        # Custom configurations (11 total to make 17 models)
         (
             "custom_32_64_4_256",
             ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 4, 256]),
@@ -278,6 +261,27 @@ def main() -> None:
         (
             "custom_16_64_8_64",
             ConvLSTMCustom(num_classes, input_shape, filters=[16, 64, 8, 64]),
+        ),
+        (
+            "custom_32_32_8_64",
+            ConvLSTMCustom(num_classes, input_shape, filters=[32, 32, 8, 64]),
+        ),
+        # Baselines
+        ("original", ConvLSTMOriginal(num_classes, input_shape)),
+        ("light", ConvLSTMModel(num_classes, input_shape)),
+        ("pooled", ConvLSTMPooledModel(num_classes, input_shape)),
+        # PyTorch 3D ResNet variants
+        (
+            "resnet_3d_18",
+            Video3DModelWrapper(video_models.r3d_18(weights=None), num_classes),
+        ),
+        (
+            "resnet_mc3_18",
+            Video3DModelWrapper(video_models.mc3_18(weights=None), num_classes),
+        ),
+        (
+            "resnet_r2plus1d_18",
+            Video3DModelWrapper(video_models.r2plus1d_18(weights=None), num_classes),
         ),
     ]
 
