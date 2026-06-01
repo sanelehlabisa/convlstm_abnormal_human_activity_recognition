@@ -38,9 +38,10 @@ class AHARDataset(Dataset):
     def __init__(
         self,
         dataset_dir: str | Path,
-        sequence_length: int = 32,
-        frame_size: tuple[int, int] = (64, 64),
+        sequence_length: int = 64,
+        frame_size: tuple[int, int] = (112, 112),
         transform: Optional[transforms.Compose] = None,
+        target_fps: int = TARGET_FPS,
     ) -> None:
         """
         Initializes the dataset and automatically detects the data format.
@@ -50,6 +51,7 @@ class AHARDataset(Dataset):
             sequence_length (int): Number of frames to sample per clip.
             frame_size (tuple[int, int]): Target spatial resolution for the frames.
             transform (Optional[transforms.Compose]): Data augmentations to apply.
+            target_fps (int): The consistent frame rate to sample clips at.
 
         Returns:
             None
@@ -58,6 +60,7 @@ class AHARDataset(Dataset):
         self.sequence_length = sequence_length
         self.frame_size = frame_size
         self.transform = transform
+        self.target_fps = target_fps
 
         self.class_names: list[str] = sorted(
             d.name for d in self.dataset_dir.iterdir() if d.is_dir()
@@ -65,7 +68,6 @@ class AHARDataset(Dataset):
         self.class_to_idx = {c: i for i, c in enumerate(self.class_names)}
         self.num_classes = len(self.class_names)
 
-        # Detect mode: frames (dirs of PNGs) or video
         self._mode = self._detect_mode()
 
         self.samples: list[tuple[Path, int]] = []
@@ -84,6 +86,7 @@ class AHARDataset(Dataset):
             f"✅ {len(self.samples)} {'clips' if self._mode == 'frames' else 'videos'} "
             f"| mode={self._mode} | {self.num_classes} classes: {self.class_names}"
         )
+
 
     def _detect_mode(self) -> str:
         """
@@ -120,7 +123,8 @@ class AHARDataset(Dataset):
         self, frames: torch.Tensor, source_fps: float
     ) -> torch.Tensor:
         """
-        Uniformly samples a fixed sequence of frames based on the target frames per second.
+        Samples a fixed sequence of frames based on the target frames per second, 
+        preserving the natural speed of the motion regardless of video length.
 
         Parameters:
             frames (torch.Tensor): The input frame sequence tensor.
@@ -130,17 +134,19 @@ class AHARDataset(Dataset):
             sampled_frames (torch.Tensor): The reduced and padded frame sequence tensor.
         """
         T = frames.shape[0]
+        
+        # Calculate stride to match target FPS
+        stride = max(1, round(source_fps / self.target_fps))
+        indices = list(range(0, T, stride))
 
-        if T >= self.sequence_length:
-            # Uniformly sample sequence_length frames across full duration
-            indices = torch.linspace(0, T - 1, self.sequence_length).long()
-            return frames[indices]
+        # Truncate or pad to exactly sequence_length
+        if len(indices) >= self.sequence_length:
+            indices = indices[: self.sequence_length]
         else:
-            # Pad by repeating last frame
-            pad = self.sequence_length - T
-            return torch.cat(
-                [frames, frames[-1:].expand(pad, *frames.shape[1:])], dim=0
-            )
+            pad = self.sequence_length - len(indices)
+            indices += [indices[-1]] * pad
+
+        return frames[torch.tensor(indices)]
 
     def _load_video(self, path: Path) -> torch.Tensor:
         """
