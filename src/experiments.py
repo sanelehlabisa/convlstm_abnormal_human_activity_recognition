@@ -47,12 +47,12 @@ parser.add_argument("--batch_size", type=int, default=16)
 parser.add_argument("--sequence_length", type=int, default=16)
 parser.add_argument("--height", type=int, default=32)
 parser.add_argument("--width", type=int, default=32)
-parser.add_argument("--aug_copies", type=int, default=1)
+parser.add_argument("--aug_copies", type=int, default=3)
 parser.add_argument("--train_ratio", type=float, default=0.7)
 parser.add_argument("--val_ratio", type=float, default=0.1)
 parser.add_argument("--num_workers", type=int, default=2)
 parser.add_argument("--learning_rate", type=float, default=1e-3)
-parser.add_argument("--weight_decay", type=float, default=1e-3)
+parser.add_argument("--weight_decay", type=float, default=1e-2)
 
 
 class Video3DModelWrapper(nn.Module):
@@ -221,7 +221,79 @@ def main() -> None:
     input_shape = (3, args.height, args.width)
 
     configs = [
-        # Custom configurations (11 total to make 17 models)
+        # --- Expanding Architectures (Increasing filters deeper in the network) ---
+        (
+            "custom_16_32_64_128",
+            ConvLSTMCustom(num_classes, input_shape, filters=[16, 32, 64, 128]),
+        ),
+        (
+            "custom_32_64_128_256",
+            ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 128, 256]),
+        ),
+        (
+            "custom_8_16_32_64",
+            ConvLSTMCustom(num_classes, input_shape, filters=[8, 16, 32, 64]),
+        ),
+        (
+            "custom_64_128_256_512",
+            ConvLSTMCustom(num_classes, input_shape, filters=[64, 128, 256, 512]),
+        ),
+
+        # --- Contracting Architectures (Front-heavy for early spatial extraction) ---
+        (
+            "custom_128_64_32_16",
+            ConvLSTMCustom(num_classes, input_shape, filters=[128, 64, 32, 16]),
+        ),
+        (
+            "custom_64_32_16_8",
+            ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 16, 8]),
+        ),
+        (
+            "custom_256_128_64_32",
+            ConvLSTMCustom(num_classes, input_shape, filters=[256, 128, 64, 32]),
+        ),
+
+        # --- Uniform Architectures (Consistent representation across blocks) ---
+        (
+            "custom_16_16_16_16",
+            ConvLSTMCustom(num_classes, input_shape, filters=[16, 16, 16, 16]),
+        ),
+        (
+            "custom_32_32_32_32",
+            ConvLSTMCustom(num_classes, input_shape, filters=[32, 32, 32, 32]),
+        ),
+        (
+            "custom_64_64_64_64",
+            ConvLSTMCustom(num_classes, input_shape, filters=[64, 64, 64, 64]),
+        ),
+        (
+            "custom_128_128_128_128",
+            ConvLSTMCustom(num_classes, input_shape, filters=[128, 128, 128, 128]),
+        ),
+
+        # --- Alternating / Bottleneck Architectures ---
+        (
+            "custom_16_64_16_64",
+            ConvLSTMCustom(num_classes, input_shape, filters=[16, 64, 16, 64]),
+        ),
+        (
+            "custom_32_128_32_128",
+            ConvLSTMCustom(num_classes, input_shape, filters=[32, 128, 32, 128]),
+        ),
+        (
+            "custom_128_32_128_32",
+            ConvLSTMCustom(num_classes, input_shape, filters=[128, 32, 128, 32]),
+        ),
+        (
+            "custom_64_128_64_32",
+            ConvLSTMCustom(num_classes, input_shape, filters=[64, 128, 64, 32]),
+        ),
+        (
+            "custom_32_16_32_64",
+            ConvLSTMCustom(num_classes, input_shape, filters=[32, 16, 32, 64]),
+        ),
+
+        # --- Original Sweeps (Preserved) ---
         (
             "custom_32_64_4_256",
             ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 4, 256]),
@@ -262,15 +334,13 @@ def main() -> None:
             "custom_16_64_8_64",
             ConvLSTMCustom(num_classes, input_shape, filters=[16, 64, 8, 64]),
         ),
-        (
-            "custom_32_32_8_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 32, 8, 64]),
-        ),
-        # Baselines
+
+        # --- Baselines ---
         ("original", ConvLSTMOriginal(num_classes, input_shape)),
         ("light", ConvLSTMModel(num_classes, input_shape)),
         ("pooled", ConvLSTMPooledModel(num_classes, input_shape)),
-        # PyTorch 3D ResNet variants
+
+        # --- PyTorch 3D ResNet variants ---
         (
             "resnet_3d_18",
             Video3DModelWrapper(video_models.r3d_18(weights=None), num_classes),
