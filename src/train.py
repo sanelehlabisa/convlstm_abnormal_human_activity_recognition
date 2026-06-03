@@ -184,21 +184,20 @@ def main() -> None:
     print(f"Train: {n_train} | Val: {n_val} | Test: {n_test}")
 
     # Streamlined pipeline for linear probing/head fine-tuning
+    # Upgraded robust transform pipeline with TrivialAugmentWide compatibility
     train_transform = transforms.Compose(
         [
             # Spatial - safe horizontal flip applied identically across the clip
             transforms.RandomHorizontalFlip(p=0.5),
             
-            # Mild Color Jitter - subtle changes to handle varying lighting conditions
-            transforms.RandomApply(
-                [
-                    transforms.ColorJitter(
-                        brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05
-                    )
-                ],
-                p=0.5,
-            ),
+            # Step 1: Scale float tensor [0.0, 1.0] to uint8 [0, 255] for TrivialAugment compatibility
+            transforms.Lambda(lambda img: (img * 255).to(torch.uint8)),
+            
+            # Step 2: Apply TrivialAugmentWide safely on uint8 data
             transforms.TrivialAugmentWide(),
+            
+            # Step 3: Convert back to float tensor [0.0, 1.0] for model backbone processing
+            transforms.Lambda(lambda img: img.float() / 255.0),
         ]
     )
 
