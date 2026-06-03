@@ -183,50 +183,26 @@ def main() -> None:
     )
     print(f"Train: {n_train} | Val: {n_val} | Test: {n_test}")
 
+    # Streamlined pipeline for linear probing/head fine-tuning
     train_transform = transforms.Compose(
         [
-            # Spatial - applied identically to all frames in clip
+            # Spatial - safe horizontal flip applied identically across the clip
             transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomVerticalFlip(p=0.1),  # rare vertical flip
+            
+            # Mild Color Jitter - subtle changes to handle varying lighting conditions
             transforms.RandomApply(
                 [
-                    transforms.RandomAffine(
-                        degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)
+                    transforms.ColorJitter(
+                        brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05
                     )
                 ],
                 p=0.5,
             ),
-            transforms.RandomApply(
-                [
-                    transforms.RandomResizedCrop(
-                        size=(args.height, args.width),
-                        scale=(0.8, 1.0),
-                        ratio=(0.9, 1.1),
-                    )
-                ],
-                p=0.4,
-            ),
-            transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
-            # Colour - simulate different lighting and camera conditions
-            transforms.RandomApply(
-                [
-                    transforms.ColorJitter(
-                        brightness=0.5, contrast=0.5, saturation=0.4, hue=0.1
-                    )
-                ],
-                p=0.8,
-            ),
-            transforms.RandomGrayscale(p=0.1),  # occasionally strip colour
-            transforms.RandomApply(
-                [transforms.RandomAdjustSharpness(sharpness_factor=2)], p=0.3
-            ),
-            # Noise / blur - simulate compression artifacts and camera blur
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.3),
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=5)], p=0.1),
-            # Erase - forces model to use whole frame not single region
-            transforms.RandomErasing(
-                p=0.3, scale=(0.02, 0.15), ratio=(0.3, 3.0), value=0
-            ),
+            
+            # OPTIONAL: TrivialAugmentWide (Commented out for alternative testing)
+            # Note: If un-commented, ensure you run with --finetune_full so the 
+            # backbone layers can learn to adapt to the wide variety of distortions.
+            # transforms.TrivialAugmentWide(),
         ]
     )
 
