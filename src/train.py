@@ -198,11 +198,7 @@ def main() -> None:
                 ],
                 p=0.5,
             ),
-            
-            # OPTIONAL: TrivialAugmentWide (Commented out for alternative testing)
-            # Note: If un-commented, ensure you run with --finetune_full so the 
-            # backbone layers can learn to adapt to the wide variety of distortions.
-            # transforms.TrivialAugmentWide(),
+            transforms.TrivialAugmentWide(),
         ]
     )
 
