@@ -423,7 +423,7 @@ def main() -> None:
         t_res = {k: m.compute().item() for k, m in test_metrics.items()}
 
         # Generates confusion matrix per architecture variant!
-        cm_path = str(results_dir / args.dataset_dir.split('/')[-1] / f"cm_{name}.png")
+        cm_path = str(results_dir / f"cm_{args.dataset_dir.split('/')[-1]}_{name}.png")
         plot_confusion_matrix(
             all_true,
             all_pred,
@@ -472,7 +472,7 @@ def main() -> None:
         )
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = results_dir / args.dataset_dir.split('/')[-1] / f"grid_search_{ts}.json"
+    out_path = results_dir / f"grid_search_{args.dataset_dir.split('/')[-1]}_{ts}.json"
     with open(out_path, "w") as f:
         json.dump({"best": ranked[:5], "all": all_results}, f, indent=2)
     print(f"\nFull results saved to {out_path}")
