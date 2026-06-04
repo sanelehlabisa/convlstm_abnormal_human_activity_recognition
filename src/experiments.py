@@ -163,7 +163,7 @@ def main() -> None:
         generator=torch.Generator().manual_seed(42),
     )
 
-    # ---- Augmentation (same pipeline as train.py) ----
+    # ---- Augmentation ----
     train_transform = transforms.Compose(
         [
             transforms.RandomHorizontalFlip(p=0.5),
@@ -219,141 +219,31 @@ def main() -> None:
 
     # ---- Model configs ----
     input_shape = (3, args.height, args.width)
+    
+    import itertools
+    import random
+    
+    # Generate random subset of all possible custom configurations
+    filter_options = [8, 16, 32, 128, 256]
+    all_combos = list(itertools.product(filter_options, repeat=4))
+    
+    # Pick 15 random combinations (change this number if you want to test more/fewer)
+    sampled_combos = random.sample(all_combos, 32)
+    
+    configs = []
+    for combo in sampled_combos:
+        name = f"custom_{combo[0]}_{combo[1]}_{combo[2]}_{combo[3]}"
+        configs.append((name, ConvLSTMCustom(num_classes, input_shape, filters=list(combo))))
 
-    configs = [
-        # --- Expanding Architectures (Increasing filters deeper in the network) ---
-        (
-            "custom_16_32_64_128",
-            ConvLSTMCustom(num_classes, input_shape, filters=[16, 32, 64, 128]),
-        ),
-        (
-            "custom_32_64_128_256",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 128, 256]),
-        ),
-        (
-            "custom_8_16_32_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[8, 16, 32, 64]),
-        ),
-        (
-            "custom_64_128_256_512",
-            ConvLSTMCustom(num_classes, input_shape, filters=[64, 128, 256, 512]),
-        ),
-
-        # --- Contracting Architectures (Front-heavy for early spatial extraction) ---
-        (
-            "custom_128_64_32_16",
-            ConvLSTMCustom(num_classes, input_shape, filters=[128, 64, 32, 16]),
-        ),
-        (
-            "custom_64_32_16_8",
-            ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 16, 8]),
-        ),
-        (
-            "custom_256_128_64_32",
-            ConvLSTMCustom(num_classes, input_shape, filters=[256, 128, 64, 32]),
-        ),
-
-        # --- Uniform Architectures (Consistent representation across blocks) ---
-        (
-            "custom_16_16_16_16",
-            ConvLSTMCustom(num_classes, input_shape, filters=[16, 16, 16, 16]),
-        ),
-        (
-            "custom_32_32_32_32",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 32, 32, 32]),
-        ),
-        (
-            "custom_64_64_64_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[64, 64, 64, 64]),
-        ),
-        (
-            "custom_128_128_128_128",
-            ConvLSTMCustom(num_classes, input_shape, filters=[128, 128, 128, 128]),
-        ),
-
-        # --- Alternating / Bottleneck Architectures ---
-        (
-            "custom_16_64_16_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[16, 64, 16, 64]),
-        ),
-        (
-            "custom_32_128_32_128",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 128, 32, 128]),
-        ),
-        (
-            "custom_128_32_128_32",
-            ConvLSTMCustom(num_classes, input_shape, filters=[128, 32, 128, 32]),
-        ),
-        (
-            "custom_64_128_64_32",
-            ConvLSTMCustom(num_classes, input_shape, filters=[64, 128, 64, 32]),
-        ),
-        (
-            "custom_32_16_32_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 16, 32, 64]),
-        ),
-
-        # --- Original Sweeps (Preserved) ---
-        (
-            "custom_32_64_4_256",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 4, 256]),
-        ),
-        (
-            "custom_32_64_8_256",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 8, 256]),
-        ),
-        (
-            "custom_64_32_8_128",
-            ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 8, 128]),
-        ),
-        (
-            "custom_64_32_16_128",
-            ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 16, 128]),
-        ),
-        (
-            "custom_64_32_16_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 16, 64]),
-        ),
-        (
-            "custom_64_32_8_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 8, 64]),
-        ),
-        (
-            "custom_32_32_8_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 32, 8, 64]),
-        ),
-        (
-            "custom_16_32_8_128",
-            ConvLSTMCustom(num_classes, input_shape, filters=[16, 32, 8, 128]),
-        ),
-        (
-            "custom_32_64_16_128",
-            ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 16, 128]),
-        ),
-        (
-            "custom_16_64_8_64",
-            ConvLSTMCustom(num_classes, input_shape, filters=[16, 64, 8, 64]),
-        ),
-
-        # --- Baselines ---
+    # Add Baselines and 3D ResNets
+    configs.extend([
         ("original", ConvLSTMOriginal(num_classes, input_shape)),
         ("light", ConvLSTMModel(num_classes, input_shape)),
         ("pooled", ConvLSTMPooledModel(num_classes, input_shape)),
-
-        # --- PyTorch 3D ResNet variants ---
-        (
-            "resnet_3d_18",
-            Video3DModelWrapper(video_models.r3d_18(weights=None), num_classes),
-        ),
-        (
-            "resnet_mc3_18",
-            Video3DModelWrapper(video_models.mc3_18(weights=None), num_classes),
-        ),
-        (
-            "resnet_r2plus1d_18",
-            Video3DModelWrapper(video_models.r2plus1d_18(weights=None), num_classes),
-        ),
-    ]
+        ("resnet_3d_18", Video3DModelWrapper(video_models.r3d_18(weights=None), num_classes)),
+        ("resnet_mc3_18", Video3DModelWrapper(video_models.mc3_18(weights=None), num_classes)),
+        ("resnet_r2plus1d_18", Video3DModelWrapper(video_models.r2plus1d_18(weights=None), num_classes)),
+    ])
 
     print(f"\nRunning {len(configs)} configurations...\n")
     all_results = []
@@ -379,9 +269,8 @@ def main() -> None:
         num_params = sum(p.numel() for p in model.parameters())
         print(f"[{i+1}/{len(configs)}] {name} | params={num_params:,}")
 
-        opt = optim.Adam(
-            model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
-        )
+        # Use AdamW with PyTorch defaults for faster, more stable convergence
+        opt = optim.AdamW(model.parameters())
         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
             device
@@ -423,7 +312,8 @@ def main() -> None:
         t_res = {k: m.compute().item() for k, m in test_metrics.items()}
 
         # Generates confusion matrix per architecture variant!
-        cm_path = str(results_dir / f"cm_{args.dataset_dir.split('/')[-1]}_{name}.png")
+        dataset_name_clean = args.dataset_dir.strip('/').split('/')[-1]
+        cm_path = str(results_dir / f"cm_{dataset_name_clean}_{name}.png")
         plot_confusion_matrix(
             all_true,
             all_pred,
@@ -472,7 +362,8 @@ def main() -> None:
         )
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = results_dir / f"grid_search_{args.dataset_dir.split('/')[-1]}_{ts}.json"
+    dataset_name_clean = args.dataset_dir.strip('/').split('/')[-1]
+    out_path = results_dir / f"grid_search_{dataset_name_clean}_{ts}.json"
     with open(out_path, "w") as f:
         json.dump({"best": ranked[:5], "all": all_results}, f, indent=2)
     print(f"\nFull results saved to {out_path}")
