@@ -322,7 +322,7 @@ def main() -> None:
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=3
+        optimizer, mode="min", factor=0.9, patience=5
     )
     acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
         device
