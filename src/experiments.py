@@ -166,39 +166,28 @@ def main() -> None:
     # ---- Augmentation ----
     train_transform = transforms.Compose(
         [
-            # 1. Safe basic flips
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomVerticalFlip(p=0.05), # Kept very rare
-            
-            # 2. Randomly pick ONE geometric distortion so they don't stack and ruin the 32x32 frame
+            # RandomChoice picks EXACTLY ONE of the transforms from this list per clip
             transforms.RandomChoice([
-                transforms.RandomAffine(degrees=10, translate=(0.05, 0.05), scale=(0.95, 1.05)),
-                transforms.RandomResizedCrop(size=(args.height, args.width), scale=(0.9, 1.0)),
-                transforms.RandomPerspective(distortion_scale=0.1, p=1.0),
-                transforms.Lambda(lambda x: x) # "Do nothing" option
-            ]),
-            
-            # 3. Very mild color variations (low probability)
-            transforms.RandomApply(
-                [
-                    transforms.ColorJitter(
-                        brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05
-                    )
-                ],
-                p=0.3,
-            ),
-            
-            # ---------------------------------------------------------
-            # OPTIONAL: TrivialAugmentWide
-            # (Picks exactly one random augmentation per frame. 
-            #  Requires uint8 conversion fix to avoid float errors.)
-            # ---------------------------------------------------------
-            # transforms.Lambda(lambda img: (img * 255).to(torch.uint8)),
-            # transforms.TrivialAugmentWide(),
-            # transforms.Lambda(lambda img: img.float() / 255.0),
+                transforms.RandomHorizontalFlip(p=1.0),
+                transforms.RandomVerticalFlip(p=1.0),
+                transforms.RandomAffine(
+                    degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)
+                ),
+                transforms.RandomResizedCrop(
+                    size=(args.height, args.width), scale=(0.8, 1.0)
+                ),
+                transforms.RandomPerspective(distortion_scale=0.2, p=1.0),
+                transforms.ColorJitter(
+                    brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1
+                ),
+                transforms.RandomGrayscale(p=1.0),
+                transforms.RandomAdjustSharpness(sharpness_factor=2, p=1.0),
+                transforms.GaussianBlur(kernel_size=3),
+                transforms.Lambda(lambda x: x)  # The "Do Nothing"
+            ])
         ]
     )
-    
+
     base_subset = torch.utils.data.Subset(dataset, train_set.indices)
     aug_subsets = [
         AugmentSubset(base_subset, train_transform) for _ in range(args.aug_copies)
