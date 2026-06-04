@@ -166,44 +166,39 @@ def main() -> None:
     # ---- Augmentation ----
     train_transform = transforms.Compose(
         [
+            # 1. Safe basic flips
             transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomVerticalFlip(p=0.1),
-            transforms.RandomApply(
-                [
-                    transforms.RandomAffine(
-                        degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)
-                    )
-                ],
-                p=0.5,
-            ),
-            transforms.RandomApply(
-                [
-                    transforms.RandomResizedCrop(
-                        size=(args.height, args.width), scale=(0.8, 1.0)
-                    )
-                ],
-                p=0.4,
-            ),
-            transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
+            transforms.RandomVerticalFlip(p=0.05), # Kept very rare
+            
+            # 2. Randomly pick ONE geometric distortion so they don't stack and ruin the 32x32 frame
+            transforms.RandomChoice([
+                transforms.RandomAffine(degrees=10, translate=(0.05, 0.05), scale=(0.95, 1.05)),
+                transforms.RandomResizedCrop(size=(args.height, args.width), scale=(0.9, 1.0)),
+                transforms.RandomPerspective(distortion_scale=0.1, p=1.0),
+                transforms.Lambda(lambda x: x) # "Do nothing" option
+            ]),
+            
+            # 3. Very mild color variations (low probability)
             transforms.RandomApply(
                 [
                     transforms.ColorJitter(
-                        brightness=0.5, contrast=0.5, saturation=0.4, hue=0.1
+                        brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05
                     )
                 ],
-                p=0.8,
+                p=0.3,
             ),
-            transforms.RandomGrayscale(p=0.1),
-            transforms.RandomApply(
-                [transforms.RandomAdjustSharpness(sharpness_factor=2)], p=0.3
-            ),
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.3),
-            transforms.RandomErasing(
-                p=0.3, scale=(0.02, 0.15), ratio=(0.3, 3.0), value=0
-            ),
+            
+            # ---------------------------------------------------------
+            # OPTIONAL: TrivialAugmentWide
+            # (Picks exactly one random augmentation per frame. 
+            #  Requires uint8 conversion fix to avoid float errors.)
+            # ---------------------------------------------------------
+            # transforms.Lambda(lambda img: (img * 255).to(torch.uint8)),
+            # transforms.TrivialAugmentWide(),
+            # transforms.Lambda(lambda img: img.float() / 255.0),
         ]
     )
-
+    
     base_subset = torch.utils.data.Subset(dataset, train_set.indices)
     aug_subsets = [
         AugmentSubset(base_subset, train_transform) for _ in range(args.aug_copies)
