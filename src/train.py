@@ -187,17 +187,41 @@ def main() -> None:
     # Upgraded robust transform pipeline with TrivialAugmentWide compatibility
     train_transform = transforms.Compose(
         [
-            # Spatial - safe horizontal flip applied identically across the clip
             transforms.RandomHorizontalFlip(p=0.5),
-            
-            # Step 1: Scale float tensor [0.0, 1.0] to uint8 [0, 255] for TrivialAugment compatibility
-            transforms.Lambda(lambda img: (img * 255).to(torch.uint8)),
-            
-            # Step 2: Apply TrivialAugmentWide safely on uint8 data
-            transforms.TrivialAugmentWide(),
-            
-            # Step 3: Convert back to float tensor [0.0, 1.0] for model backbone processing
-            transforms.Lambda(lambda img: img.float() / 255.0),
+            transforms.RandomVerticalFlip(p=0.1),
+            transforms.RandomApply(
+                [
+                    transforms.RandomAffine(
+                        degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)
+                    )
+                ],
+                p=0.5,
+            ),
+            transforms.RandomApply(
+                [
+                    transforms.RandomResizedCrop(
+                        size=(args.height, args.width), scale=(0.8, 1.0)
+                    )
+                ],
+                p=0.4,
+            ),
+            transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
+            transforms.RandomApply(
+                [
+                    transforms.ColorJitter(
+                        brightness=0.5, contrast=0.5, saturation=0.4, hue=0.1
+                    )
+                ],
+                p=0.8,
+            ),
+            transforms.RandomGrayscale(p=0.1),
+            transforms.RandomApply(
+                [transforms.RandomAdjustSharpness(sharpness_factor=2)], p=0.3
+            ),
+            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.3),
+            transforms.RandomErasing(
+                p=0.3, scale=(0.02, 0.15), ratio=(0.3, 3.0), value=0
+            ),
         ]
     )
 
