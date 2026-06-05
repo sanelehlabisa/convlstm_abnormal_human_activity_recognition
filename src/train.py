@@ -13,6 +13,8 @@ python -m src.train \
     --resume \
     --finetune_full \
     --batch_size 32 \
+    --weight_decay 0.0001 \
+    --learning_rate 0.001 \
     --epochs 64 \
     --sequence_length 64 \
     --height 64 \
@@ -20,6 +22,7 @@ python -m src.train \
     --aug_copies 4 \
     --num_workers 2 \
     --pin_memory
+    
 """
 
 from __future__ import annotations
