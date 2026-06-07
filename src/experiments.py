@@ -47,24 +47,23 @@ parser.add_argument("--batch_size", type=int, default=16)
 parser.add_argument("--sequence_length", type=int, default=16)
 parser.add_argument("--height", type=int, default=32)
 parser.add_argument("--width", type=int, default=32)
-parser.add_argument("--aug_copies", type=int, default=3)
+parser.add_argument("--aug_copies", type=int, default=1)
 parser.add_argument("--train_ratio", type=float, default=0.7)
 parser.add_argument("--val_ratio", type=float, default=0.1)
 parser.add_argument("--num_workers", type=int, default=2)
 parser.add_argument("--learning_rate", type=float, default=1e-3)
-parser.add_argument("--weight_decay", type=float, default=1e-2)
+parser.add_argument("--weight_decay", type=float, default=1e-3)
 
 
 class Video3DModelWrapper(nn.Module):
     """Wraps PyTorch 3D ResNet models to match our (B, T, C, H, W) input format."""
-
     def __init__(self, base_model, num_classes):
         super().__init__()
         self.model = base_model
-        if hasattr(self.model, "fc"):
+        if hasattr(self.model, 'fc'):
             in_features = self.model.fc.in_features
             self.model.fc = nn.Linear(in_features, num_classes)
-
+            
     def forward(self, x):
         # x is (B, T, C, H, W) -> PyTorch 3D CNNs expect (B, C, T, H, W)
         x = x.permute(0, 2, 1, 3, 4)
@@ -163,28 +162,44 @@ def main() -> None:
         generator=torch.Generator().manual_seed(42),
     )
 
-    # ---- Augmentation ----
+    # ---- Augmentation (same pipeline as train.py) ----
     train_transform = transforms.Compose(
         [
-            # RandomChoice picks EXACTLY ONE of the transforms from this list per clip
-            transforms.RandomChoice([
-                transforms.RandomHorizontalFlip(p=1.0),
-                transforms.RandomVerticalFlip(p=1.0),
-                transforms.RandomAffine(
-                    degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)
-                ),
-                transforms.RandomResizedCrop(
-                    size=(args.height, args.width), scale=(0.8, 1.0)
-                ),
-                transforms.RandomPerspective(distortion_scale=0.2, p=1.0),
-                transforms.ColorJitter(
-                    brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1
-                ),
-                transforms.RandomGrayscale(p=1.0),
-                transforms.RandomAdjustSharpness(sharpness_factor=2, p=1.0),
-                transforms.GaussianBlur(kernel_size=3),
-                transforms.Lambda(lambda x: x)  # The "Do Nothing"
-            ])
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomVerticalFlip(p=0.1),
+            transforms.RandomApply(
+                [
+                    transforms.RandomAffine(
+                        degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)
+                    )
+                ],
+                p=0.5,
+            ),
+            transforms.RandomApply(
+                [
+                    transforms.RandomResizedCrop(
+                        size=(args.height, args.width), scale=(0.8, 1.0)
+                    )
+                ],
+                p=0.4,
+            ),
+            transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
+            transforms.RandomApply(
+                [
+                    transforms.ColorJitter(
+                        brightness=0.5, contrast=0.5, saturation=0.4, hue=0.1
+                    )
+                ],
+                p=0.8,
+            ),
+            transforms.RandomGrayscale(p=0.1),
+            transforms.RandomApply(
+                [transforms.RandomAdjustSharpness(sharpness_factor=2)], p=0.3
+            ),
+            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.3),
+            transforms.RandomErasing(
+                p=0.3, scale=(0.02, 0.15), ratio=(0.3, 3.0), value=0
+            ),
         ]
     )
 
@@ -203,49 +218,40 @@ def main() -> None:
 
     # ---- Model configs ----
     input_shape = (3, args.height, args.width)
-    
-    import itertools
-    import random
-    
-    # Generate random subset of all possible custom configurations
-    filter_options = [8, 16, 32, 128, 256]
-    all_combos = list(itertools.product(filter_options, repeat=4))
-    
-    # Pick 15 random combinations (change this number if you want to test more/fewer)
-    sampled_combos = random.sample(all_combos, 32)
-    
-    configs = []
-    for combo in sampled_combos:
-        name = f"custom_{combo[0]}_{combo[1]}_{combo[2]}_{combo[3]}"
-        configs.append((name, ConvLSTMCustom(num_classes, input_shape, filters=list(combo))))
 
-    # Add Baselines and 3D ResNets
-    configs.extend([
+    configs = [
+        # Baselines
         ("original", ConvLSTMOriginal(num_classes, input_shape)),
         ("light", ConvLSTMModel(num_classes, input_shape)),
         ("pooled", ConvLSTMPooledModel(num_classes, input_shape)),
+        
+        # PyTorch 3D ResNet variants
         ("resnet_3d_18", Video3DModelWrapper(video_models.r3d_18(weights=None), num_classes)),
         ("resnet_mc3_18", Video3DModelWrapper(video_models.mc3_18(weights=None), num_classes)),
         ("resnet_r2plus1d_18", Video3DModelWrapper(video_models.r2plus1d_18(weights=None), num_classes)),
-    ])
+
+        # Custom configurations (10 total to make 16 models)
+        ("custom_32_64_4_256", ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 4, 256])),
+        ("custom_32_64_8_256", ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 8, 256])),
+        ("custom_64_32_8_128", ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 8, 128])),
+        ("custom_64_32_16_128", ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 16, 128])),
+        ("custom_64_32_16_64", ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 16, 64])),
+        ("custom_64_32_8_64", ConvLSTMCustom(num_classes, input_shape, filters=[64, 32, 8, 64])),
+        ("custom_32_32_8_64", ConvLSTMCustom(num_classes, input_shape, filters=[32, 32, 8, 64])),
+        ("custom_16_32_8_128", ConvLSTMCustom(num_classes, input_shape, filters=[16, 32, 8, 128])),
+        ("custom_32_64_16_128", ConvLSTMCustom(num_classes, input_shape, filters=[32, 64, 16, 128])),
+        ("custom_16_64_8_64", ConvLSTMCustom(num_classes, input_shape, filters=[16, 64, 8, 64])),
+    ]
 
     print(f"\nRunning {len(configs)} configurations...\n")
     all_results = []
 
     # Extra metrics tracker for final evaluation on test_set
     test_metrics = {
-        "accuracy": torchmetrics.Accuracy(
-            task="multiclass", num_classes=num_classes
-        ).to(device),
-        "precision": torchmetrics.Precision(
-            task="multiclass", num_classes=num_classes, average="macro"
-        ).to(device),
-        "recall": torchmetrics.Recall(
-            task="multiclass", num_classes=num_classes, average="macro"
-        ).to(device),
-        "f1": torchmetrics.F1Score(
-            task="multiclass", num_classes=num_classes, average="macro"
-        ).to(device),
+        "accuracy": torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(device),
+        "precision": torchmetrics.Precision(task="multiclass", num_classes=num_classes, average="macro").to(device),
+        "recall": torchmetrics.Recall(task="multiclass", num_classes=num_classes, average="macro").to(device),
+        "f1": torchmetrics.F1Score(task="multiclass", num_classes=num_classes, average="macro").to(device),
     }
 
     for i, (name, model) in enumerate(configs):
@@ -253,12 +259,9 @@ def main() -> None:
         num_params = sum(p.numel() for p in model.parameters())
         print(f"[{i+1}/{len(configs)}] {name} | params={num_params:,}")
 
-        # Use AdamW with PyTorch defaults for faster, more stable convergence
-        opt = optim.AdamW(model.parameters())
+        opt = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-        acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(
-            device
-        )
+        acc_fn = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(device)
 
         train_accs, val_accs, val_losses = [], [], []
         t0 = timer()
@@ -282,7 +285,7 @@ def main() -> None:
         model.eval()
         for m in test_metrics.values():
             m.reset()
-
+        
         with torch.inference_mode():
             for X, y in test_loader:
                 X, y = X.to(device, non_blocking=True), y.to(device, non_blocking=True)
@@ -294,16 +297,12 @@ def main() -> None:
                 all_true.extend(y.cpu().tolist())
 
         t_res = {k: m.compute().item() for k, m in test_metrics.items()}
-
+        
         # Generates confusion matrix per architecture variant!
         dataset_name_clean = args.dataset_dir.strip('/').split('/')[-1]
         cm_path = str(results_dir / f"cm_{dataset_name_clean}_{name}.png")
         plot_confusion_matrix(
-            all_true,
-            all_pred,
-            dataset.class_names,
-            dataset_name=name,
-            save_path=cm_path,
+            all_true, all_pred, dataset.class_names, dataset_name=name, save_path=cm_path
         )
 
         result = {
